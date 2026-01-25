@@ -1,0 +1,31 @@
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Tool directories
+.trae/
+
+# Backend (Python)
+smart-procure/backend/.env
+smart-procure/backend/__pycache__/
+smart-procure/backend/**/__pycache__/
+smart-procure/backend/*.pyc
+smart-procure/backend/venv/
+smart-procure/backend/.venv/
+
+# Frontend (Node.js)
+smart-procure/frontend/node_modules/
+smart-procure/frontend/dist/
+smart-procure/frontend/.env
+smart-procure/frontend/.env.local
+
+# Binary files (optional - uncomment if you don't want to track)
+# *.doc
+# *.docx
