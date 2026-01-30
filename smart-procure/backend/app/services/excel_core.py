@@ -1,7 +1,12 @@
 from ..models.columns import SLOT_TEMPLATE
 from ..models.types import UpdateAction
 from .sheet_schema import build_sheet_schema, normalize_header
-from typing import List, Any, Dict, Optional
+from .supplier_extractor import extract_supplier_info
+from .supplier_service import SupplierService
+from typing import List, Any, Dict, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 def _ensure_row_len(row: List[Any], length: int):
     while len(row) < length:
@@ -37,7 +42,7 @@ def get_price(slot_values: Dict[str, Any]) -> float:
     except:
         return float('inf')
 
-def process_update(sheet_data: List[List[Any]], action: UpdateAction) -> List[List[Any]]:
+def process_update(sheet_data: List[List[Any]], action: UpdateAction, db: Optional["Session"] = None) -> List[List[Any]]:
     # 0-based index for python list, but action.target_row is likely 1-based (Excel row number)
     # If header is row 1 (index 0), then row 2 is index 1.
     target_idx = action.target_row - 1 
@@ -156,5 +161,36 @@ def process_update(sheet_data: List[List[Any]], action: UpdateAction) -> List[Li
             set_slot_values(row, schema, slot_num, out_vals[i])
         else:
             set_slot_values(row, schema, slot_num, empty_offer)
+
+    # Auto-extract and save supplier information
+    if db and action.supplier:
+        print(f"[供应商沉淀] 开始处理供应商信息: {action.supplier}")
+        supplier_info = extract_supplier_info(action.supplier, offer_brand)
+
+        if supplier_info:
+            try:
+                supplier_service = SupplierService(db)
+                saved_supplier = supplier_service.upsert_supplier(
+                    company_name=supplier_info["company_name"],
+                    contact_phone=supplier_info["contact_phone"],
+                    owner="系统自动",
+                    contact_name=supplier_info.get("contact_name"),
+                    tags=supplier_info.get("tags")
+                )
+                print(f"✓ [供应商沉淀] 成功保存供应商: {saved_supplier.company_name} (电话: {saved_supplier.contact_phone})")
+            except Exception as e:
+                # Log error but don't fail the update
+                print(f"✗ [供应商沉淀] 保存失败: {e}")
+        else:
+            print(f"✗ [供应商沉淀] 信息提取失败 - 原因: 供应商文本中未找到有效的电话号码")
+            print(f"  提示: 供应商信息必须包含以下格式之一的电话号码：")
+            print(f"    - 手机号: 11位数字，1开头（如：13912345678）")
+            print(f"    - 座机号: 带区号（如：0512-12345678、021-12345678）")
+            print(f"    - 座机号: 7-8位数字（如：12345678）")
+            print(f"  示例格式: '苏州比高机电有限公司 张三 0512-12345678'")
+    elif action.supplier:
+        print(f"✗ [供应商沉淀] 数据库连接不可用，无法保存供应商")
+    else:
+        print(f"[供应商沉淀] 跳过 - 本次更新未包含供应商信息")
 
     return sheet_data

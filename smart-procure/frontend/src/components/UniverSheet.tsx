@@ -406,7 +406,7 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange }) => {
 
   return (
     <div className="h-full w-full flex flex-col relative">
-        <div ref={containerRef} className="flex-1 w-full overflow-hidden relative" />
+        <div ref={containerRef} className="flex-1 w-full relative" />
     </div>
   );
 };

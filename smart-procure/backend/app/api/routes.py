@@ -1,7 +1,17 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
+from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel
+from typing import List, Optional
+from sqlalchemy.orm import Session
+from urllib.parse import quote
 from ..models.types import ChatRequest, ChatResponse, UpdateAction
+from ..models.database import get_db, init_db
+from ..services.db_service import DBService
+from ..services.supplier_service import SupplierService
 from ..services.excel_core import process_update
+from ..services.excel_export import export_sheet_to_excel
 from ..services.supplier_mock import MOCK_SUPPLIERS
+from ..services.web_search import search_suppliers_online, format_search_results
 from ..core.llm import call_llm
 from ..services.agent_runtime import ToolRegistry, run_two_stage_agent
 from ..services.sheet_schema import (
@@ -15,8 +25,30 @@ from ..services.sheet_schema import (
 import json
 import pandas as pd
 import io
+import uuid
 
 router = APIRouter()
+
+# Initialize database on startup
+init_db()
+
+
+# Pydantic models for sheet save/load
+class SaveSheetRequest(BaseModel):
+    id: Optional[str] = None
+    name: str
+    sheet_data: list
+    chat_history: list
+
+
+class SheetListItem(BaseModel):
+    id: str
+    name: str
+    item_count: int
+    completion_rate: float
+    created_at: str
+    updated_at: str
+
 
 def get_sheet_state_summary(sheet_data):
     if not sheet_data or len(sheet_data) < 2 or not isinstance(sheet_data[0], list):
@@ -180,7 +212,7 @@ def build_history_messages(chat_history, max_messages: int = 12, max_chars_per_m
     return items[-max_messages:]
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
     sheet_data = request.current_sheet_data or []
     schema = build_sheet_schema(sheet_data)
     headers = schema.get("headers") or []
@@ -246,11 +278,53 @@ async def chat_endpoint(request: ChatRequest):
         name = args.get("name") or args.get("lookup_supplier")
         if not isinstance(name, str) or not name.strip():
             return {"supplier": None}
-        info = MOCK_SUPPLIERS.get(name.strip())
-        if not info:
-            return {"supplier": None}
-        supplier = " ".join([str(info.get("full_name") or "").strip(), str(info.get("contact") or "").strip(), str(info.get("phone") or "").strip()]).strip()
-        return {"supplier": supplier or None}
+
+        # Search database for supplier
+        try:
+            supplier_service = SupplierService(db)
+            results = supplier_service.search_suppliers(name.strip(), limit=1)
+            if results:
+                s = results[0]
+                supplier = " ".join([
+                    s.company_name or "",
+                    s.contact_name or "",
+                    s.contact_phone or ""
+                ]).strip()
+                return {"supplier": supplier or None}
+        except Exception as e:
+            print(f"Supplier lookup error: {e}")
+
+        return {"supplier": None}
+
+    def _web_search_supplier(args: dict) -> dict:
+        """网络搜索品牌的供应商信息"""
+        brand = args.get("brand")
+        if not isinstance(brand, str) or not brand.strip():
+            return {"success": False, "message": "品牌名称不能为空"}
+
+        try:
+            results = search_suppliers_online(brand.strip(), max_results=5)
+            if not results:
+                return {
+                    "success": False,
+                    "message": f"未找到'{brand}'的供应商信息",
+                    "results": []
+                }
+
+            formatted_text = format_search_results(brand, results)
+            return {
+                "success": True,
+                "message": formatted_text,
+                "results": results,
+                "count": len(results)
+            }
+        except Exception as e:
+            print(f"Web search error: {e}")
+            return {
+                "success": False,
+                "message": f"搜索出错：{str(e)}",
+                "results": []
+            }
 
     tools.register(
         "locate_row",
@@ -269,6 +343,14 @@ async def chat_endpoint(request: ChatRequest):
         "supplier_lookup",
         {"description": "按人名/简称查供应商字符串（一个单元格）", "args": {"name": "str"}},
         _supplier_lookup,
+    )
+    tools.register(
+        "web_search_supplier",
+        {
+            "description": "在互联网上搜索品牌的供应商、代理商、经销商信息。当用户询问某个品牌的供应商，或者数据库中没有该品牌的供应商时使用。",
+            "args": {"brand": "str"}
+        },
+        _web_search_supplier,
     )
 
     agent_out = run_two_stage_agent(
@@ -336,7 +418,7 @@ async def chat_endpoint(request: ChatRequest):
                     allowed = set(getattr(UpdateAction, "__fields__", {}).keys())
                 cleaned = {k: v for k, v in data_dict.items() if k in allowed}
                 update_action = UpdateAction(**cleaned)
-                current_sheet = process_update(current_sheet, update_action)
+                current_sheet = process_update(current_sheet, update_action, db)
                 updated_rows.append(update_action.target_row)
 
             if not updated_rows:
@@ -425,7 +507,7 @@ async def chat_endpoint(request: ChatRequest):
                 allowed = set(getattr(UpdateAction, "__fields__", {}).keys())
             cleaned = {k: v for k, v in data_dict.items() if k in allowed}
             update_action = UpdateAction(**cleaned)
-            new_sheet = process_update(sheet_data, update_action)
+            new_sheet = process_update(sheet_data, update_action, db)
             return ChatResponse(
                 action="WRITE",
                 content=f"报价已更新 (行 {update_action.target_row})",
@@ -438,28 +520,306 @@ async def chat_endpoint(request: ChatRequest):
     return ChatResponse(action="ASK", content="未知指令")
 
 @router.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db)):
     if not file.filename.endswith(('.xlsx', '.xls')):
         raise HTTPException(status_code=400, detail="Invalid file format. Please upload an Excel file.")
-    
+
     try:
         contents = await file.read()
         df = pd.read_excel(io.BytesIO(contents))
-        
+
         # Replace NaN with empty string
         df = df.fillna("")
-        
+
         # Convert to list of lists
         # Include headers as the first row
         headers = df.columns.tolist()
         data = df.values.tolist()
-        
-        # Ensure result matches expected structure (optional: validate columns)
-        # For now, we trust the uploaded file or just return it as is
-        
+
         result_data = [headers] + data
-        
-        return {"data": result_data}
-        
+
+        # Analyze and recommend suppliers based on brands and product names
+        recommended_suppliers = []
+        try:
+            schema = build_sheet_schema(result_data)
+            cols = schema.get("item_columns") or {}
+            brand_col = cols.get("brand")
+            name_col = cols.get("name")
+
+            # Collect unique brands and product names
+            brands = set()
+            product_names = set()
+
+            for row in result_data[1:]:  # Skip header row
+                if not isinstance(row, list):
+                    continue
+
+                # Extract brand
+                if isinstance(brand_col, int) and brand_col < len(row):
+                    brand = row[brand_col]
+                    if brand and str(brand).strip() and str(brand).strip().lower() != "none":
+                        brands.add(str(brand).strip())
+
+                # Extract product name
+                if isinstance(name_col, int) and name_col < len(row):
+                    name = row[name_col]
+                    if name and str(name).strip() and str(name).strip().lower() != "none":
+                        product_names.add(str(name).strip())
+
+            # Search suppliers by brands and product names
+            supplier_service = SupplierService(db)
+            seen_suppliers = set()
+
+            # Search by brands
+            for brand in brands:
+                results = supplier_service.search_suppliers(brand, limit=3)
+                for supplier in results:
+                    if supplier.id not in seen_suppliers:
+                        seen_suppliers.add(supplier.id)
+                        recommended_suppliers.append({
+                            "company_name": supplier.company_name,
+                            "contact_name": supplier.contact_name,
+                            "contact_phone": supplier.contact_phone,
+                            "match_reason": f"品牌匹配: {brand}",
+                            "quote_count": supplier.quote_count,
+                            "last_quote_date": supplier.last_quote_date.isoformat() if supplier.last_quote_date else None
+                        })
+
+            # Limit to top 10 recommendations
+            recommended_suppliers = recommended_suppliers[:10]
+
+        except Exception as e:
+            print(f"Failed to analyze suppliers: {e}")
+            # Don't fail the upload if supplier analysis fails
+
+        return {
+            "data": result_data,
+            "recommended_suppliers": recommended_suppliers
+        }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}")
+
+
+@router.post("/sheets/save")
+async def save_sheet(request: SaveSheetRequest, db: Session = Depends(get_db)):
+    """Save or update an inquiry sheet"""
+    try:
+        # Generate ID if not provided
+        sheet_id = request.id or str(uuid.uuid4())
+
+        # Calculate metadata
+        schema = build_sheet_schema(request.sheet_data)
+        slots = schema.get("slots") or {}
+        slot_count = len(slots)
+
+        item_count = len(request.sheet_data) - 1 if len(request.sheet_data) > 1 else 0
+
+        # Calculate completion rate
+        total_cells = item_count * slot_count
+        filled_cells = 0
+
+        if total_cells > 0:
+            for row in request.sheet_data[1:]:
+                if isinstance(row, list):
+                    for slot_num in slots.keys():
+                        slot_map = slots.get(slot_num) or {}
+                        price_idx = slot_map.get("单价")
+                        if isinstance(price_idx, int) and price_idx < len(row):
+                            val = row[price_idx]
+                            if val and str(val).strip() and str(val).strip().lower() != "none":
+                                filled_cells += 1
+
+        completion_rate = filled_cells / total_cells if total_cells > 0 else 0.0
+
+        # Save to database
+        db_service = DBService(db)
+        sheet = db_service.save_sheet(
+            sheet_id=sheet_id,
+            name=request.name,
+            sheet_data=request.sheet_data,
+            chat_history=request.chat_history,
+            item_count=item_count,
+            completion_rate=completion_rate
+        )
+
+        return {
+            "id": sheet.id,
+            "message": "保存成功",
+            "completion_rate": completion_rate
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save sheet: {str(e)}")
+
+
+@router.get("/sheets/list")
+async def list_sheets(limit: int = 50, offset: int = 0, db: Session = Depends(get_db)):
+    """Get list of saved inquiry sheets"""
+    try:
+        db_service = DBService(db)
+        sheets = db_service.list_sheets(limit=limit, offset=offset)
+
+        result = []
+        for sheet in sheets:
+            result.append({
+                "id": sheet.id,
+                "name": sheet.name,
+                "item_count": sheet.item_count,
+                "completion_rate": sheet.completion_rate,
+                "created_at": sheet.created_at.isoformat() if sheet.created_at else "",
+                "updated_at": sheet.updated_at.isoformat() if sheet.updated_at else ""
+            })
+
+        return {"sheets": result, "total": len(result)}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list sheets: {str(e)}")
+
+
+@router.get("/sheets/{sheet_id}")
+async def get_sheet(sheet_id: str, db: Session = Depends(get_db)):
+    """Get a single inquiry sheet by ID"""
+    try:
+        db_service = DBService(db)
+        sheet = db_service.get_sheet(sheet_id)
+
+        if not sheet:
+            raise HTTPException(status_code=404, detail="Sheet not found")
+
+        return {
+            "id": sheet.id,
+            "name": sheet.name,
+            "sheet_data": sheet.sheet_data,
+            "chat_history": sheet.chat_history,
+            "item_count": sheet.item_count,
+            "completion_rate": sheet.completion_rate,
+            "created_at": sheet.created_at.isoformat() if sheet.created_at else "",
+            "updated_at": sheet.updated_at.isoformat() if sheet.updated_at else ""
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get sheet: {str(e)}")
+
+
+@router.delete("/sheets/{sheet_id}")
+async def delete_sheet(sheet_id: str, db: Session = Depends(get_db)):
+    """Delete an inquiry sheet"""
+    try:
+        db_service = DBService(db)
+        success = db_service.delete_sheet(sheet_id)
+
+        if not success:
+            raise HTTPException(status_code=404, detail="Sheet not found")
+
+        return {"message": "删除成功"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete sheet: {str(e)}")
+
+
+@router.get("/sheets/{sheet_id}/export")
+async def export_sheet(sheet_id: str, db: Session = Depends(get_db)):
+    """Export an inquiry sheet to Excel"""
+    try:
+        db_service = DBService(db)
+        sheet = db_service.get_sheet(sheet_id)
+
+        if not sheet:
+            raise HTTPException(status_code=404, detail="Sheet not found")
+
+        # Generate Excel file (returns BytesIO)
+        excel_file = export_sheet_to_excel(sheet.sheet_data, f"{sheet.name}.xlsx")
+
+        # Encode filename for Content-Disposition header (RFC 5987)
+        encoded_filename = quote(f"{sheet.name}.xlsx")
+
+        # Return as streaming response
+        return StreamingResponse(
+            excel_file,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to export sheet: {str(e)}")
+
+
+# Supplier API endpoints
+@router.get("/suppliers/search")
+async def search_suppliers(q: str, limit: int = 10, db: Session = Depends(get_db)):
+    """Search suppliers by name, phone, or contact"""
+    try:
+        supplier_service = SupplierService(db)
+        suppliers = supplier_service.search_suppliers(q, limit=limit)
+
+        result = []
+        for s in suppliers:
+            result.append({
+                "id": s.id,
+                "company_name": s.company_name,
+                "contact_phone": s.contact_phone,
+                "contact_name": s.contact_name,
+                "owner": s.owner,
+                "tags": s.tags or [],
+                "quote_count": s.quote_count,
+                "last_quote_date": s.last_quote_date.isoformat() if s.last_quote_date else None
+            })
+
+        return {"suppliers": result}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to search suppliers: {str(e)}")
+
+
+@router.get("/suppliers/list")
+async def list_suppliers_endpoint(limit: int = 50, offset: int = 0, db: Session = Depends(get_db)):
+    """Get list of suppliers"""
+    try:
+        supplier_service = SupplierService(db)
+        suppliers = supplier_service.list_suppliers(limit=limit, offset=offset)
+
+        result = []
+        for s in suppliers:
+            result.append({
+                "id": s.id,
+                "company_name": s.company_name,
+                "contact_phone": s.contact_phone,
+                "contact_name": s.contact_name,
+                "owner": s.owner,
+                "tags": s.tags or [],
+                "quote_count": s.quote_count,
+                "last_quote_date": s.last_quote_date.isoformat() if s.last_quote_date else None,
+                "created_at": s.created_at.isoformat() if s.created_at else None
+            })
+
+        return {"suppliers": result, "total": len(result)}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list suppliers: {str(e)}")
+
+
+@router.delete("/suppliers/{supplier_id}")
+async def delete_supplier_endpoint(supplier_id: int, db: Session = Depends(get_db)):
+    """Delete a supplier"""
+    try:
+        supplier_service = SupplierService(db)
+        success = supplier_service.delete_supplier(supplier_id)
+
+        if not success:
+            raise HTTPException(status_code=404, detail="Supplier not found")
+
+        return {"message": "删除成功"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete supplier: {str(e)}")
