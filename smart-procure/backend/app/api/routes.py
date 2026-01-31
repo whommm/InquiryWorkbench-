@@ -360,7 +360,10 @@ def build_history_messages(chat_history, max_messages: int = 12, max_chars_per_m
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
+    print(f"[DEBUG] ========== 开始处理chat请求 ==========")
+    print(f"[DEBUG] 用户消息: {request.message}")
     sheet_data = request.current_sheet_data or []
+    print(f"[DEBUG] 表格数据行数: {len(sheet_data)}")
     schema = build_sheet_schema(sheet_data)
     headers = schema.get("headers") or []
     headers_preview = [str(h) for h in headers[:40]]
@@ -538,6 +541,13 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
         max_tool_steps=3,
     )
 
+    print(f"[DEBUG] Agent返回结果:")
+    print(f"[DEBUG] - action: {agent_out.get('action')}")
+    print(f"[DEBUG] - updates存在: {agent_out.get('updates') is not None}")
+    if agent_out.get('updates'):
+        print(f"[DEBUG] - updates数量: {len(agent_out.get('updates'))}")
+        print(f"[DEBUG] - updates内容: {agent_out.get('updates')}")
+
     if agent_out.get("action") == "ASK":
         return ChatResponse(action="ASK", content=agent_out.get("content") or "请提供更多信息")
 
@@ -602,12 +612,45 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
 
             if not updated_rows:
                 return ChatResponse(action="ASK", content="更新列表中没有可执行的更新项")
-            return ChatResponse(
+
+            # 检查缺失字段并生成提醒
+            missing_fields = set()
+            for data_dict in updates:
+                if not data_dict.get("supplier"):
+                    missing_fields.add("供应商")
+                if data_dict.get("shipping") is None:
+                    missing_fields.add("含运")
+
+            # 生成响应消息
+            success_msg = f"✓ 报价已更新 (行 {', '.join(str(r) for r in updated_rows[:10])})"
+            if missing_fields:
+                reminder = f"\n\n💡 提示：缺少以下信息，如需补充请继续输入：{', '.join(missing_fields)}"
+                success_msg += reminder
+
+            print(f"[DEBUG] 准备返回响应:")
+            print(f"[DEBUG] - action: WRITE")
+            print(f"[DEBUG] - content: {success_msg}")
+            print(f"[DEBUG] - updated_rows: {updated_rows}")
+            print(f"[DEBUG] - current_sheet行数: {len(current_sheet)}")
+            print(f"[DEBUG] - current_sheet第一行: {current_sheet[0] if current_sheet else 'None'}")
+            print(f"[DEBUG] - updates数量: {len(updates)}")
+
+            # 打印更新的行的详细信息
+            for row_num in updated_rows[:3]:  # 只打印前3行
+                if 0 < row_num <= len(current_sheet):
+                    row_data = current_sheet[row_num - 1]
+                    print(f"[DEBUG] - 行{row_num}数据（前10列）: {row_data[:10] if isinstance(row_data, list) else row_data}")
+
+            response = ChatResponse(
                 action="WRITE",
-                content=f"报价已更新 (行 {', '.join(str(r) for r in updated_rows[:10])})",
+                content=success_msg,
                 data=updates,
                 updated_sheet=current_sheet,
             )
+            print(f"[DEBUG] ChatResponse对象创建成功")
+            print(f"[DEBUG] response.updated_sheet行数: {len(response.updated_sheet) if response.updated_sheet else 'None'}")
+            print(f"[DEBUG] response.content长度: {len(response.content) if response.content else 0}")
+            return response
 
         data_dict = agent_out.get("data") or {}
         if not isinstance(data_dict, dict):
@@ -687,9 +730,23 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
             cleaned = {k: v for k, v in data_dict.items() if k in allowed}
             update_action = UpdateAction(**cleaned)
             new_sheet = process_update(sheet_data, update_action, db)
+
+            # 检查缺失字段并生成提醒
+            missing_fields = []
+            if not update_action.supplier:
+                missing_fields.append("供应商")
+            if update_action.shipping is None:
+                missing_fields.append("含运")
+
+            # 生成响应消息
+            success_msg = f"✓ 报价已更新 (行 {update_action.target_row})"
+            if missing_fields:
+                reminder = f"\n\n💡 提示：缺少以下信息，如需补充请继续输入：{', '.join(missing_fields)}"
+                success_msg += reminder
+
             return ChatResponse(
                 action="WRITE",
-                content=f"报价已更新 (行 {update_action.target_row})",
+                content=success_msg,
                 data=update_action,
                 updated_sheet=new_sheet
             )

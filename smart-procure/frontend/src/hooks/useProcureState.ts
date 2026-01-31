@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { initSheet, sendChat, uploadFile } from '../utils/api';
+import { initSheet, sendChat, uploadFile, saveSheet } from '../utils/api';
 import { useTabsStore } from '../stores/useTabsStore';
 
 export interface ChatMessage {
@@ -86,6 +86,21 @@ export const useProcureState = () => {
       }
 
       updates.chatHistory = [...nextHistory, { role: 'assistant', content: reply }];
+
+      // 如果是WRITE操作，立即保存并标记为已保存，避免自动保存的竞态条件
+      if (response.action === "WRITE" && response.updated_sheet && activeTab) {
+        console.log('[Chat] 立即保存最新数据...');
+        await saveSheet({
+          id: activeTab.id,
+          name: activeTab.name,
+          sheet_data: response.updated_sheet,
+          chat_history: updates.chatHistory,
+        });
+        console.log('[Chat] ✓ 数据已保存');
+        // 标记为已保存，避免触发自动保存
+        updates.isDirty = false;
+      }
+
       console.log('[Chat] 更新标签页数据...');
       await updateTabData(activeTabId, updates);
       console.log('[Chat] 标签页数据更新完成');

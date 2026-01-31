@@ -14,7 +14,7 @@ class UpdateAction(BaseModel):
     target_row: int
     price: float
     tax: bool = False
-    shipping: Union[bool, str] = False
+    shipping: Optional[Union[bool, str]] = False
     delivery_time: str
     offer_brand: Optional[str] = None
     supplier: Optional[str] = None

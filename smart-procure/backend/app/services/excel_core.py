@@ -42,6 +42,41 @@ def get_price(slot_values: Dict[str, Any]) -> float:
     except:
         return float('inf')
 
+def is_same_core_offer(offer1: Dict[str, Any], offer2: Dict[str, Any]) -> bool:
+    """判断两个报价是否核心字段相同（价格、货期、品牌）"""
+    try:
+        # 比较价格
+        price1 = get_price(offer1)
+        price2 = get_price(offer2)
+        if price1 == float('inf') or price2 == float('inf'):
+            return False
+        if abs(price1 - price2) > 0.01:  # 允许0.01的浮点误差
+            return False
+
+        # 比较货期
+        delivery1 = offer1.get("货期")
+        delivery2 = offer2.get("货期")
+        if delivery1 != delivery2:
+            return False
+
+        # 比较品牌
+        brand1 = offer1.get("品牌")
+        brand2 = offer2.get("品牌")
+        if brand1 != brand2:
+            return False
+
+        return True
+    except:
+        return False
+
+def merge_offers(existing: Dict[str, Any], new: Dict[str, Any]) -> Dict[str, Any]:
+    """合并两个报价，新报价的非空字段会覆盖旧报价"""
+    merged = dict(existing)
+    for key, value in new.items():
+        if value is not None and value != "" and str(value).strip().lower() != "none":
+            merged[key] = value
+    return merged
+
 def process_update(sheet_data: List[List[Any]], action: UpdateAction, db: Optional["Session"] = None) -> List[List[Any]]:
     # 0-based index for python list, but action.target_row is likely 1-based (Excel row number)
     # If header is row 1 (index 0), then row 2 is index 1.
@@ -145,22 +180,38 @@ def process_update(sheet_data: List[List[Any]], action: UpdateAction, db: Option
     print(f"[DEBUG] process_update - action.price: {action.price}, type: {type(action.price)}")
     p_new = float(action.price)
     print(f"[DEBUG] process_update - p_new after float(): {p_new}")
-    out_vals: List[Dict[str, Any]] = []
-    inserted = False
-    for v in sorted_vals:
-        if not inserted and p_new < get_price(v):
-            out_vals.append(new_offer)
-            inserted = True
-        out_vals.append(v)
-    if not inserted:
-        out_vals.append(new_offer)
 
-    out_vals = out_vals[: len(slot_numbers)]
+    # 先检查是否存在核心相同的报价（价格、货期、品牌相同）
+    # 如果存在，则合并字段而不是插入新报价
+    found_matching = False
+    for i, v in enumerate(sorted_vals):
+        if is_same_core_offer(v, new_offer):
+            print(f"[DEBUG] 发现核心相同的报价，执行合并而非插入")
+            sorted_vals[i] = merge_offers(v, new_offer)
+            found_matching = True
+            break
+
+    # 如果没有找到匹配的报价，则按价格排序插入
+    if not found_matching:
+        print(f"[DEBUG] 未找到匹配报价，按价格插入新报价")
+        out_vals: List[Dict[str, Any]] = []
+        inserted = False
+        for v in sorted_vals:
+            if not inserted and p_new < get_price(v):
+                out_vals.append(new_offer)
+                inserted = True
+            out_vals.append(v)
+        if not inserted:
+            out_vals.append(new_offer)
+        sorted_vals = out_vals
+
+    # 限制槽位数量
+    final_vals = sorted_vals[: len(slot_numbers)]
     empty_offer = {k: None for k in SLOT_TEMPLATE}
 
     for i, slot_num in enumerate(slot_numbers):
-        if i < len(out_vals):
-            set_slot_values(row, schema, slot_num, out_vals[i])
+        if i < len(final_vals):
+            set_slot_values(row, schema, slot_num, final_vals[i])
         else:
             set_slot_values(row, schema, slot_num, empty_offer)
 
