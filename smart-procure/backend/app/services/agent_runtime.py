@@ -50,7 +50,9 @@ def build_planner_prompt(
     headers_preview_json: str,
     writable_fields_json: str,
     required_fields_json: str,
-    candidate_rows_summary: str,
+    brand_context: str,
+    relevant_rows_json: str,
+    total_relevant_rows: int,
     tools_catalog_json: str,
     tool_results_json: str,
 ) -> str:
@@ -59,41 +61,74 @@ def build_planner_prompt(
 你绝对不允许输出 WRITE，也不允许编造行号。
 槽位(slot)的选择/顺移/按价格排序完全由后端确定性算法处理，你不需要也不允许询问"写第几家/第几个slot"。
 
-特殊规则 - 供应商信息查询：
-- 当用户的意图是查询供应商信息（例如"帮我查查XX品牌的商家"、"搜索XX的供应商"），而不是写入报价时：
-  1) 先调用 web_search_supplier 工具搜索供应商信息
-  2) 工具返回后，将工具结果中的 message 字段作为回复内容，使用 ASK 动作展示给用户
-  3) 不要继续询问用户要为哪个物料询价，除非用户明确表示要写入报价
+## 核心原则：优先使用被动注入的信息，减少工具调用
 
-被动注入（表格状态摘要，不是工具）：{sheet_state_summary}
+系统已经通过智能匹配为你提供了相关行的完整信息，你应该：
+1. **优先使用被动注入的"相关产品列表"来匹配用户报价**，而不是调用 locate_row 工具
+2. **只在需要查询供应商信息时调用工具**（supplier_lookup, web_search_supplier）
+3. **支持批量报价处理**：用户可能一次性报多个产品的价格，你应该一次性处理所有产品
+
+## 被动注入的信息（已通过智能匹配提供）
+
+表格状态摘要：{sheet_state_summary}
 当前待询价物品：{pending_items_summary}
 表头预览：{headers_preview_json}
 报价字段映射（槽位 -> 列名）：{writable_fields_json}
-必填字段（按表结构动态生成）：{required_fields_json}
-候选行（仅供参考，最终必须靠工具确认/去歧义）：{candidate_rows_summary}
 
-可用工具（JSON）：{tools_catalog_json}
-已获得的工具结果（JSON）：{tool_results_json}
+**品牌上下文**：{brand_context}
+**相关产品列表**（共{total_relevant_rows}行，已通过模糊匹配找到）：
+{relevant_rows_json}
 
-输出必须是严格 JSON（不要 Markdown），action 只能是以下之一：
+注意：相关产品列表已经包含了所有可能匹配的行，包括：
+- 精确匹配的行（匹配度100%）
+- 模糊匹配的行（匹配度75%以上，可能是笔误、少字母等变体）
+- 如果识别到品牌，还包含该品牌的所有产品
+
+## 字段要求（宽松模式）
+
+必填字段：{required_fields_json}
+
+**重要**：字段要求已放宽，允许缺失部分信息：
+- **税费处理**：如果用户只说"含税"，填 tax=true, shipping=null（不追问是否含运）
+- **品牌处理**：如果用户没说品牌，使用表格中该行的品牌（不追问品牌）
+- **供应商处理**：如果用户没说供应商，可以省略（不追问供应商）
+- **只在真正无法确定行号时才追问**
+
+## 批量报价处理
+
+用户经常一次性报多个产品的价格，格式如：
+"CPE14-M1BH-5/3GS-1/8 650含税3-5周 DFM-16-30-B-PPV-A-GF 765含税3-5周 ADVUL-20-30-P-A 415含税3-5周"
+
+你应该：
+1. 识别所有型号和对应的价格、交期
+2. 使用相关产品列表中的信息匹配每个型号到对应的行号
+3. 在draft中传递多个产品的信息（Writer会输出updates数组）
+
+## 可用工具（仅在必要时调用）
+
+{tools_catalog_json}
+已获得的工具结果：{tool_results_json}
+
+**工具使用原则**：
+- **不要调用 locate_row**：相关产品列表已经提供了所有信息
+- **不要调用 get_row_slot_snapshot**：相关产品列表已包含报价状态
+- **只在需要查询供应商时调用**：supplier_lookup, web_search_supplier
+
+## 输出格式
+
+输出必须是严格 JSON（不要 Markdown），action 只能是：
 1) CALL_TOOL：{{\"action\":\"CALL_TOOL\",\"tool\":\"tool_name\",\"args\":{{...}}}}
 2) ASK：{{\"action\":\"ASK\",\"content\":\"...\"}}
 3) DONE：{{\"action\":\"DONE\",\"draft\":{{...}}}}
 
-draft 用于把你从用户输入中解析出的字段传递给 Writer（不要猜测缺失值）：
-- target_row（仅当用户明确说第X行）
-- lookup_item / lookup_brand / lookup_model（用于定位行）
-- quoted_model（用户报价里给出的型号）
-- quoted_spec（仅当用户在本轮消息里明确给出规格/功率等才填，例如 2KW；不要从表格或候选行“推断/复述”规格，更不要因为大小写差异（1kw vs 1KW）填入 quoted_spec）
-- price / tax / shipping / delivery_time
-- offer_brand（报价槽位品牌，若用户明确给出则传；否则可省略，后端会默认用物料品牌填充）
-- supplier（若用户直接给了供应商完整字符串）
-- lookup_supplier（若用户说“找张三”这类模糊供应商）
-- remarks（用户明确给出的备注）
+draft 用于传递给 Writer：
+- target_row：从相关产品列表中匹配的行号
+- price / tax / shipping / delivery_time：从用户消息中提取
+- offer_brand：可选，如果用户明确给出
+- supplier / lookup_supplier：可选
+- remarks：可选
 
-去歧义规则：
-- 如果 locate_row 返回多个候选且用户没有提供足够区分信息（型号/规格/行号），必须 ASK，让用户选择候选行或补充型号/规格。
-- 如果表里目标物料唯一且用户给的 quoted_spec/quoted_model 与表内不一致，不要追问“是否另一个型号/是否新增物料”，直接写入报价，并把不一致写入备注（后端也会自动追加备注）。
+**批量处理**：如果用户报了多个产品，在draft中传递数组或多个产品的信息。
 """
 
 
@@ -104,39 +139,67 @@ def build_writer_prompt(
     headers_preview_json: str,
     writable_fields_json: str,
     required_fields_json: str,
-    candidate_rows_summary: str,
+    brand_context: str,
+    relevant_rows_json: str,
+    total_relevant_rows: int,
     tool_results_json: str,
     draft_json: str,
 ) -> str:
     return f"""你是一个采购Agent的Writer阶段。
-你不能调用工具；你只能在已有工具结果基础上做决定：ASK 或 WRITE。
-槽位(slot)的选择/顺移/按价格排序完全由后端确定性算法处理：\n- 如果所有slot为空，默认写入slot1。\n- 如果已有报价，按单价排序插入并顺移。\n因此你不需要也不允许询问“写第几家/第几个slot”。不要在输出中出现 slot/slot1/slot2 等字段。
+你不能调用工具；你只能在已有信息基础上做决定：ASK 或 WRITE。
+槽位(slot)的选择/顺移/按价格排序完全由后端确定性算法处理，你不需要也不允许询问"写第几家/第几个slot"。
 
-被动注入（表格状态摘要，不是工具）：{sheet_state_summary}
+## 被动注入的信息
+
+表格状态摘要：{sheet_state_summary}
 当前待询价物品：{pending_items_summary}
 表头预览：{headers_preview_json}
 报价字段映射（槽位 -> 列名）：{writable_fields_json}
-必填字段（按表结构动态生成）：{required_fields_json}
-候选行：{candidate_rows_summary}
+
+**品牌上下文**：{brand_context}
+**相关产品列表**（共{total_relevant_rows}行）：
+{relevant_rows_json}
+
 工具结果（JSON）：{tool_results_json}
 Planner草稿（JSON）：{draft_json}
+
+## 字段要求（宽松模式）
+
+必填字段：{required_fields_json}
+
+**重要**：允许缺失部分信息，不要过度追问：
+- **税费**：只说"含税"时填 tax=true, shipping=null
+- **品牌**：未明确时使用表格中的品牌
+- **供应商**：未明确时可省略
+
+## 批量报价处理（重要）
+
+如果Planner传递了多个产品的信息，你应该使用 **updates 数组** 一次性写入所有产品：
+
+{{
+  "action": "WRITE",
+  "updates": [
+    {{"target_row": 2, "price": 650, "tax": true, "delivery_time": "3-5周"}},
+    {{"target_row": 3, "price": 765, "tax": true, "delivery_time": "3-5周"}},
+    {{"target_row": 4, "price": 415, "tax": true, "delivery_time": "3-5周"}}
+  ]
+}}
+
+## 输出格式
 
 输出必须是严格 JSON（不要 Markdown），action 只能是：
 1) ASK：{{\"action\":\"ASK\",\"content\":\"...\"}}
 2) WRITE：{{\"action\":\"WRITE\",\"data\":{{...}}}} 或 {{\"action\":\"WRITE\",\"updates\":[{{...}},{{...}}]}}
 
-WRITE 的 data 需要包含：
+WRITE 的 data/updates 需要包含：
 - target_row（必须有且唯一）
 - price / tax / shipping / delivery_time
-- offer_brand（可选；若省略后端默认用物料品牌填充）
-- supplier（单个字符串，一个单元格内写“供应商全称 姓名 手机”等，若没有就省略）
-- quoted_model（仅当用户在本轮消息里明确给出型号才传递；不要从表格“复述/推断”型号）
-- quoted_spec（仅当用户在本轮消息里明确给出规格/功率才传递；不要因大小写差异传递）
+- offer_brand（可选）
+- supplier（可选）
 - remarks（可选）
-- lookup_supplier（可选：若需要后端补全供应商字符串）
 
-规则：
-- 如果无法确定唯一 target_row，必须 ASK（列出候选行让用户选，或让用户补充型号/规格）。\n"""
+**规则**：只在真正无法确定行号时才 ASK。
+"""
 
 
 def run_two_stage_agent(
@@ -159,7 +222,9 @@ def run_two_stage_agent(
             headers_preview_json=context["headers_preview_json"],
             writable_fields_json=context["writable_fields_json"],
             required_fields_json=context["required_fields_json"],
-            candidate_rows_summary=context["candidate_rows_summary"],
+            brand_context=context["brand_context"],
+            relevant_rows_json=context["relevant_rows_json"],
+            total_relevant_rows=context["total_relevant_rows"],
             tools_catalog_json=tools_catalog_json,
             tool_results_json=_tool_results_block(tool_results),
         )
@@ -195,7 +260,9 @@ def run_two_stage_agent(
         headers_preview_json=context["headers_preview_json"],
         writable_fields_json=context["writable_fields_json"],
         required_fields_json=context["required_fields_json"],
-        candidate_rows_summary=context["candidate_rows_summary"],
+        brand_context=context["brand_context"],
+        relevant_rows_json=context["relevant_rows_json"],
+        total_relevant_rows=context["total_relevant_rows"],
         tool_results_json=_tool_results_block(tool_results),
         draft_json=json.dumps(draft, ensure_ascii=False),
     )

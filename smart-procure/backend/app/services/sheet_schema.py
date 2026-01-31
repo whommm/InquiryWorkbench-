@@ -1,5 +1,6 @@
 import re
 from typing import Any, Dict, List, Optional, Tuple
+from difflib import SequenceMatcher
 
 from ..models.columns import BASIC_COLS
 
@@ -12,6 +13,18 @@ def normalize_header(text: Any) -> str:
     s = s.replace("（", "(").replace("）", ")")
     s = s.replace("：", ":")
     return s
+
+
+def fuzzy_match_score(str1: str, str2: str) -> float:
+    """计算两个字符串的相似度（0-100）"""
+    if not str1 or not str2:
+        return 0.0
+    # 标准化后比较
+    norm1 = normalize_header(str1)
+    norm2 = normalize_header(str2)
+    if not norm1 or not norm2:
+        return 0.0
+    return SequenceMatcher(None, norm1, norm2).ratio() * 100
 
 
 CANONICAL_FIELD_SYNONYMS: Dict[str, List[str]] = {
@@ -86,6 +99,14 @@ def _canonical_field_from_base(base: str) -> Optional[str]:
 
 
 def build_sheet_schema(sheet_data: Optional[List[List[Any]]]) -> Dict[str, Any]:
+    """
+    构建表格schema - 使用固定位置模式
+
+    表格结构：
+    - 前5列：基础列（物品名称、型号、品牌、数量、单位，顺序可能不同）
+    - 从第6列开始：每7列为一个报价槽位
+    - 槽位内固定顺序：品牌、单价、含税、含运、货期、备注、供应商
+    """
     headers: List[Any] = []
     if sheet_data and len(sheet_data) >= 1 and isinstance(sheet_data[0], list):
         headers = sheet_data[0]
@@ -96,25 +117,30 @@ def build_sheet_schema(sheet_data: Optional[List[List[Any]]]) -> Dict[str, Any]:
         if nh and nh not in header_index:
             header_index[nh] = idx
 
-    slots: Dict[int, Dict[str, int]] = {}
-    base_cols_norm = {normalize_header(c) for c in BASIC_COLS}
-    for idx, h in enumerate(headers):
-        nh = normalize_header(h)
-        if not nh:
-            continue
-        base, slot = _detect_slot_suffix(nh)
-        if slot is None and base in base_cols_norm:
-            continue
-        canonical = _canonical_field_from_base(base)
-        if canonical is None:
-            continue
-        slot_num = slot if slot is not None else 1
-        slots.setdefault(slot_num, {})
-        if canonical == "供应商" and "供应商" in slots[slot_num]:
-            continue
-        slots[slot_num][canonical] = idx
+    # 固定位置模式：前5列为基础列
+    BASIC_COLS_COUNT = 5
 
-    item_cols = infer_item_columns(headers)
+    # 识别基础列（通过字段名匹配）
+    item_cols = infer_item_columns(headers[:BASIC_COLS_COUNT])
+
+    # 从第6列开始，每7列为一个报价槽位
+    SLOT_SIZE = 7
+    SLOT_START = BASIC_COLS_COUNT
+
+    # 槽位内的固定顺序
+    SLOT_FIELDS = ["品牌", "单价", "含税", "含运", "货期", "备注", "供应商"]
+
+    slots: Dict[int, Dict[str, int]] = {}
+    slot_num = 1
+    col_idx = SLOT_START
+
+    while col_idx + SLOT_SIZE <= len(headers):
+        slot_mapping = {}
+        for i, field in enumerate(SLOT_FIELDS):
+            slot_mapping[field] = col_idx + i
+        slots[slot_num] = slot_mapping
+        slot_num += 1
+        col_idx += SLOT_SIZE
 
     return {
         "headers": headers,
@@ -530,4 +556,100 @@ def get_row_slot_snapshot(schema: Dict[str, Any], sheet_data: List[List[Any]], r
         "型号": _get(model_col),
         "slots": out_slots,
     }
+
+
+def fuzzy_match_rows(
+    sheet_data: List[List[Any]],
+    query: str,
+    brand_filter: Optional[str] = None,
+    threshold: float = 80.0,
+    max_results: int = 20,
+) -> List[Dict[str, Any]]:
+    """
+    使用模糊匹配查找与查询字符串相似的行
+
+    Args:
+        sheet_data: 表格数据
+        query: 查询字符串（型号、产品名称等）
+        brand_filter: 可选的品牌过滤
+        threshold: 相似度阈值（0-100）
+        max_results: 最多返回的结果数
+
+    Returns:
+        匹配的行列表，每个元素包含行号、相似度、字段信息
+    """
+    if not sheet_data or len(sheet_data) < 2:
+        return []
+    if not query or not query.strip():
+        return []
+
+    headers = sheet_data[0]
+    cols = infer_item_columns(headers)
+    name_col = cols.get("name")
+    brand_col = cols.get("brand")
+    model_col = cols.get("model")
+    spec_col = cols.get("spec")
+
+    results = []
+
+    for i, row in enumerate(sheet_data[1:], start=2):
+        if not isinstance(row, list):
+            continue
+
+        # 获取各字段值
+        def _get_val(idx):
+            if not isinstance(idx, int) or idx < 0 or idx >= len(row):
+                return ""
+            v = row[idx]
+            return str(v).strip() if v is not None else ""
+
+        name = _get_val(name_col)
+        brand = _get_val(brand_col)
+        model = _get_val(model_col)
+        spec = _get_val(spec_col)
+
+        # 品牌过滤
+        if brand_filter:
+            brand_score = fuzzy_match_score(brand_filter, brand)
+            if brand_score < 70:  # 品牌相似度要求较低
+                continue
+
+        # 计算各字段的相似度
+        max_score = 0.0
+        match_field = ""
+
+        if model:
+            model_score = fuzzy_match_score(query, model)
+            if model_score > max_score:
+                max_score = model_score
+                match_field = "型号"
+
+        if name:
+            name_score = fuzzy_match_score(query, name)
+            if name_score > max_score:
+                max_score = name_score
+                match_field = "产品名称"
+
+        if spec:
+            spec_score = fuzzy_match_score(query, spec)
+            if spec_score > max_score:
+                max_score = spec_score
+                match_field = "规格"
+
+        # 如果相似度超过阈值，加入结果
+        if max_score >= threshold:
+            results.append({
+                "row": i,
+                "score": max_score,
+                "match_field": match_field,
+                "name": name or None,
+                "brand": brand or None,
+                "model": model or None,
+                "spec": spec or None,
+            })
+
+    # 按相似度降序排序
+    results.sort(key=lambda x: x["score"], reverse=True)
+
+    return results[:max_results]
 

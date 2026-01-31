@@ -21,11 +21,13 @@ from ..services.sheet_schema import (
     find_candidate_rows,
     locate_rows_by_criteria,
     get_row_slot_snapshot,
+    fuzzy_match_rows,
 )
 import json
 import pandas as pd
 import io
 import uuid
+import re
 
 router = APIRouter()
 
@@ -187,6 +189,151 @@ def build_candidate_rows_summary(sheet_data, rows: list) -> str:
         parts.append(text)
     return "; ".join(parts) if parts else "无"
 
+
+def extract_models_from_message(message: str, sheet_data: list) -> list:
+    """从用户消息中提取可能的型号"""
+    if not message or not sheet_data or len(sheet_data) < 2:
+        return []
+
+    # 获取表格中所有的型号
+    schema = build_sheet_schema(sheet_data)
+    cols = schema.get("item_columns") or {}
+    model_col = cols.get("model")
+
+    if not isinstance(model_col, int):
+        return []
+
+    # 提取表格中的所有型号
+    table_models = []
+    for row in sheet_data[1:]:
+        if isinstance(row, list) and model_col < len(row):
+            model = row[model_col]
+            if model and str(model).strip():
+                table_models.append(str(model).strip())
+
+    # 从消息中查找可能的型号（使用模糊匹配）
+    potential_models = []
+    words = re.split(r'[\s,，、]+', message)
+
+    for word in words:
+        word = word.strip()
+        if not word or len(word) < 3:
+            continue
+        # 检查是否与表格中的型号相似
+        for table_model in table_models:
+            from ..services.sheet_schema import fuzzy_match_score
+            score = fuzzy_match_score(word, table_model)
+            if score >= 70:  # 相似度阈值
+                if word not in potential_models:
+                    potential_models.append(word)
+                break
+
+    return potential_models
+
+
+def extract_brand_from_message(message: str, sheet_data: list) -> Optional[str]:
+    """从用户消息中提取品牌"""
+    if not message or not sheet_data or len(sheet_data) < 2:
+        return None
+
+    # 获取表格中所有的品牌
+    schema = build_sheet_schema(sheet_data)
+    cols = schema.get("item_columns") or {}
+    brand_col = cols.get("brand")
+
+    if not isinstance(brand_col, int):
+        return None
+
+    # 提取表格中的所有品牌
+    table_brands = set()
+    for row in sheet_data[1:]:
+        if isinstance(row, list) and brand_col < len(row):
+            brand = row[brand_col]
+            if brand and str(brand).strip():
+                table_brands.add(str(brand).strip())
+
+    # 从消息中查找品牌
+    for brand in table_brands:
+        if brand in message:
+            return brand
+
+    return None
+
+
+def build_smart_context(message: str, sheet_data: list, max_rows: int = 50) -> dict:
+    """
+    构建智能上下文注入数据
+
+    Args:
+        message: 用户消息
+        sheet_data: 表格数据
+        max_rows: 最多注入的行数
+
+    Returns:
+        包含品牌上下文和相关产品列表的字典
+    """
+    if not sheet_data or len(sheet_data) < 2:
+        return {"brand_context": None, "relevant_rows": []}
+
+    # 1. 提取品牌和型号
+    brand_context = extract_brand_from_message(message, sheet_data)
+    potential_models = extract_models_from_message(message, sheet_data)
+
+    # 2. 使用模糊匹配找到相关行
+    relevant_rows_dict = {}  # 使用字典去重，key为行号
+
+    # 2.1 根据提取的型号进行模糊匹配
+    for model in potential_models:
+        matches = fuzzy_match_rows(
+            sheet_data,
+            model,
+            brand_filter=brand_context,
+            threshold=75.0,  # 降低阈值以支持更多变体
+            max_results=10
+        )
+        for match in matches:
+            row_num = match["row"]
+            if row_num not in relevant_rows_dict:
+                relevant_rows_dict[row_num] = match
+
+    # 2.2 如果识别到品牌，补充该品牌的所有产品
+    if brand_context:
+        schema = build_sheet_schema(sheet_data)
+        cols = schema.get("item_columns") or {}
+        brand_col = cols.get("brand")
+
+        if isinstance(brand_col, int):
+            for i, row in enumerate(sheet_data[1:], start=2):
+                if not isinstance(row, list) or brand_col >= len(row):
+                    continue
+                row_brand = row[brand_col]
+                if row_brand and str(row_brand).strip() == brand_context:
+                    if i not in relevant_rows_dict:
+                        # 添加该品牌的产品
+                        relevant_rows_dict[i] = {
+                            "row": i,
+                            "score": 100.0,  # 品牌匹配给高分
+                            "match_field": "品牌",
+                            "name": row[cols.get("name")] if isinstance(cols.get("name"), int) and cols.get("name") < len(row) else None,
+                            "brand": brand_context,
+                            "model": row[cols.get("model")] if isinstance(cols.get("model"), int) and cols.get("model") < len(row) else None,
+                            "spec": row[cols.get("spec")] if isinstance(cols.get("spec"), int) and cols.get("spec") < len(row) else None,
+                        }
+
+    # 3. 转换为列表并排序
+    relevant_rows = list(relevant_rows_dict.values())
+    relevant_rows.sort(key=lambda x: (-x["score"], x["row"]))
+
+    # 4. 限制数量
+    relevant_rows = relevant_rows[:max_rows]
+
+    return {
+        "brand_context": brand_context,
+        "relevant_rows": relevant_rows,
+        "total_matched": len(relevant_rows)
+    }
+
+
 def build_history_messages(chat_history, max_messages: int = 12, max_chars_per_message: int = 1200):
     if not chat_history:
         return None
@@ -231,20 +378,49 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
     if not has_price_col:
         return ChatResponse(action="ASK", content="当前表格未检测到可写入的报价列（例如：单价1/是否含税1/是否含运1/货期1）。请上传包含报价列的询价表，或调整表头命名。")
 
-    candidate_rows = find_candidate_rows(sheet_data, request.message, max_candidates=3)
-    row_snapshot = None
+    # 使用智能上下文注入
+    smart_context = build_smart_context(request.message, sheet_data, max_rows=50)
 
     summary = get_pending_summary(sheet_data)
     sheet_state_summary = get_sheet_state_summary(sheet_data)
     history_messages = build_history_messages(request.chat_history)
+
+    # 构建相关行的详细信息（用于注入给AI）
+    relevant_rows_detail = []
+    for row_info in smart_context["relevant_rows"]:
+        # 获取该行的报价槽位状态
+        row_num = row_info["row"]
+        slot_status = []
+        for slot_num in sorted(slots.keys())[:3]:  # 最多3个槽位
+            slot_map = slots.get(slot_num) or {}
+            price_idx = slot_map.get("单价")
+            if isinstance(price_idx, int) and row_num - 1 < len(sheet_data):
+                row_data = sheet_data[row_num - 1]
+                if isinstance(row_data, list) and price_idx < len(row_data):
+                    price_val = row_data[price_idx]
+                    has_price = price_val is not None and str(price_val).strip() not in ("", "none", "None")
+                    slot_status.append(f"槽位{slot_num}{'已填' if has_price else '空'}")
+
+        relevant_rows_detail.append({
+            "行号": row_num,
+            "品牌": row_info.get("brand"),
+            "产品名称": row_info.get("name"),
+            "型号": row_info.get("model"),
+            "规格": row_info.get("spec"),
+            "匹配度": f"{row_info['score']:.0f}%",
+            "匹配字段": row_info.get("match_field"),
+            "报价状态": ", ".join(slot_status) if slot_status else "无槽位"
+        })
+
     context = {
         "sheet_state_summary": sheet_state_summary,
         "pending_items_summary": summary,
         "headers_preview_json": json.dumps(headers_preview, ensure_ascii=False),
         "writable_fields_json": writable_fields_json,
         "required_fields_json": json.dumps(required_fields, ensure_ascii=False),
-        "candidate_rows_summary": build_candidate_rows_summary(sheet_data, candidate_rows),
-        "row_snapshot_json": json.dumps(row_snapshot, ensure_ascii=False) if row_snapshot else "null",
+        "brand_context": smart_context["brand_context"] or "未识别",
+        "relevant_rows_json": json.dumps(relevant_rows_detail, ensure_ascii=False),
+        "total_relevant_rows": smart_context["total_matched"],
     }
 
     tools = ToolRegistry()
@@ -417,7 +593,10 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
                 else:
                     allowed = set(getattr(UpdateAction, "__fields__", {}).keys())
                 cleaned = {k: v for k, v in data_dict.items() if k in allowed}
+                print(f"[DEBUG] 批量更新 - data_dict: {data_dict}")
+                print(f"[DEBUG] 批量更新 - cleaned: {cleaned}")
                 update_action = UpdateAction(**cleaned)
+                print(f"[DEBUG] 批量更新 - update_action.price: {update_action.price}, type: {type(update_action.price)}")
                 current_sheet = process_update(current_sheet, update_action, db)
                 updated_rows.append(update_action.target_row)
 

@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npm run build:*)",
+      "Bash(pip install:*)",
+      "Bash(docker-compose down:*)",
+      "Bash(docker-compose build:*)",
+      "Bash(docker-compose up:*)",
+      "Bash(docker-compose ps:*)",
+      "Bash(docker-compose logs:*)",
+      "Bash(curl:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker logs:*)",
+      "Bash(docker restart:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: 修复数据持久化问题并实现供应商自动沉淀功能\n\n主要改进：\n\n## 数据持久化修复\n- 修复自动保存功能的debounce逻辑，解决数据无法保存到后端的问题\n- 修复历史记录加载时的竞态条件，确保数据正确加载\n- 改进createTab函数，支持传入初始数据避免数据覆盖\n\n## 供应商自动沉淀\n- 实现供应商信息自动提取和保存功能\n- 支持多种电话号码格式：手机号\\(11位\\)、座机号\\(带区号\\)、座机号\\(7-8位\\)\n- 添加详细的日志输出，便于调试和监控\n- 实现供应商去重和报价次数统计\n\n## 新增功能模块\n- 添加历史记录管理面板\\(HistoryPanel\\)\n- 添加供应商管理面板\\(SupplierPanel\\)\n- 实现多标签页工作区\\(TabBar + useTabsStore\\)\n- 添加自动保存功能\\(useAutoSave\\)\n- 实现本地数据持久化\\(IndexedDB\\)\n\n## 数据库支持\n- 添加SQLite数据库支持\n- 实现InquirySheet和Supplier数据模型\n- 添加数据库服务层\\(DBService, SupplierService\\)\n- 实现Excel导出功能\n\n## 改进错误处理\n- 添加详细的前端日志\\([Chat]标记\\)\n- 添加后端供应商沉淀日志\\([供应商沉淀]标记\\)\n- 改进错误提示信息，提供具体的格式要求\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nchore: 保存当前版本以便后续优化回滚\n\n- 更新前端UniverSheet组件和useProcureState hook\n- 删除旧的项目说明文档\n- 准备进行LLM提示词和数据注入机制的优化\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+    ]
+  }
+}

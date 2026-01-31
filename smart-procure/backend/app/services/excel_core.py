@@ -142,7 +142,9 @@ def process_update(sheet_data: List[List[Any]], action: UpdateAction, db: Option
     offers.sort(key=lambda x: (x[0], x[1]))
     sorted_vals = [v for _, __, v in offers]
 
+    print(f"[DEBUG] process_update - action.price: {action.price}, type: {type(action.price)}")
     p_new = float(action.price)
+    print(f"[DEBUG] process_update - p_new after float(): {p_new}")
     out_vals: List[Dict[str, Any]] = []
     inserted = False
     for v in sorted_vals:
