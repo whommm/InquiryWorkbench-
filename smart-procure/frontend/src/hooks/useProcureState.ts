@@ -111,6 +111,9 @@ export const useProcureState = () => {
 
         const res = await uploadFile(file);
         if (res && res.data) {
+            // Extract filename without extension
+            const fileName = file.name.replace(/\.(xlsx?|xls)$/i, '');
+
             // Build success message with supplier recommendations
             let successMessage = `文件 ${file.name} 上传并解析成功！`;
 
@@ -133,6 +136,7 @@ export const useProcureState = () => {
             }
 
             await updateTabData(activeTabId, {
+              name: fileName,  // Update tab name with uploaded filename
               sheetData: res.data,
               chatHistory: [...chatHistory,
                 { role: 'user', content: `正在上传文件: ${file.name}...` },

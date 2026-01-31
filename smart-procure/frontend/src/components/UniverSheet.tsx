@@ -57,14 +57,39 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange }) => {
       if (Array.isArray(row) && row.length > maxCol) maxCol = row.length;
     });
     const colCount = Math.max(maxCol, 26);
-    const normalized: string[][] = Array.from({ length: rowCount }, () =>
+
+    // Support both plain values and formula objects
+    const normalized: (string | { f?: string; v?: unknown })[][] = Array.from({ length: rowCount }, () =>
       Array.from({ length: colCount }, () => '')
     );
+
     next.forEach((row, r) => {
       if (!Array.isArray(row)) return;
       row.forEach((cell, c) => {
         if (r >= rowCount || c >= colCount) return;
-        normalized[r][c] = cell === null || cell === undefined ? '' : String(cell);
+
+        // Handle null/undefined
+        if (cell === null || cell === undefined) {
+          normalized[r][c] = '';
+          return;
+        }
+
+        // Handle formula objects (e.g., {f: "=SUM(A1:A10)", v: 100})
+        if (typeof cell === 'object' && cell !== null && 'f' in cell) {
+          normalized[r][c] = cell as { f?: string; v?: unknown };
+          return;
+        }
+
+        // Handle string values that might be formulas
+        const cellStr = String(cell);
+        if (cellStr.startsWith('=')) {
+          // This is a formula - preserve it as a formula object
+          normalized[r][c] = { f: cellStr };
+          return;
+        }
+
+        // Regular value
+        normalized[r][c] = cellStr;
       });
     });
 
@@ -113,15 +138,24 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange }) => {
       Array.from({ length: colCount }, (_, c) => (base[r]?.[c] ?? ''))
     );
 
-    const hasCellValue = (v: unknown): v is { v?: unknown } =>
-      typeof v === 'object' && v !== null && 'v' in v;
+    const hasCellValue = (v: unknown): v is { v?: unknown; f?: string } =>
+      typeof v === 'object' && v !== null && ('v' in v || 'f' in v);
 
     const writeCell = (r: number, c: number, v: unknown) => {
       if (r < 0 || c < 0 || r >= rowCount || c >= colCount) return;
+
+      // Handle formula/value objects from Univerjs
       if (hasCellValue(v)) {
-        next[r][c] = v.v ?? '';
+        // If it has a formula, preserve the formula
+        if (v.f) {
+          next[r][c] = v.f;
+        } else {
+          next[r][c] = v.v ?? '';
+        }
         return;
       }
+
+      // Handle regular values
       next[r][c] = v ?? '';
     };
 
