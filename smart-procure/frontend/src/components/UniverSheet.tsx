@@ -301,11 +301,14 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
 
             if (!isSetValues && !isClear) return;
 
+            console.log('[UniverSheet] Data change command:', cmd.id, 'params:', JSON.stringify(cmd.params));
+
             const params =
               cmd.params && typeof cmd.params === 'object'
                 ? (cmd.params as { range?: unknown; value?: unknown })
                 : undefined;
-            const range = params?.range as
+
+            let range = params?.range as
               | {
                   unitId?: unknown;
                   startRow?: unknown;
@@ -314,7 +317,34 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
                   endColumn?: unknown;
                 }
               | undefined;
-            if (!range) return;
+
+            // 对于清除命令，params可能是undefined，需要从当前选区获取range
+            if (!range && isClear) {
+              try {
+                const activeSheet = univerAPI.getActiveWorkbook()?.getActiveSheet();
+                const selection = activeSheet?.getSelection();
+                const activeRange = selection?.getActiveRange();
+                if (activeRange) {
+                  const rangeData = (activeRange as any)._range;
+                  if (rangeData) {
+                    range = {
+                      startRow: rangeData.startRow,
+                      endRow: rangeData.endRow,
+                      startColumn: rangeData.startColumn,
+                      endColumn: rangeData.endColumn,
+                    };
+                    console.log('[UniverSheet] Got range from selection:', range);
+                  }
+                }
+              } catch (e) {
+                console.warn('[UniverSheet] Failed to get range from selection:', e);
+              }
+            }
+
+            if (!range) {
+              console.log('[UniverSheet] No range found');
+              return;
+            }
             const activeUnitId = univerAPI.getActiveWorkbook?.()?.getId?.() as string | undefined;
             const rangeUnitId = typeof range.unitId === 'string' ? range.unitId : undefined;
             if (rangeUnitId && activeUnitId && rangeUnitId !== activeUnitId) return;
@@ -335,10 +365,23 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
                     ? range.startColumn
                     : 0,
             };
-            // 清除命令时value为空字符串
-            const valueToApply = isClear ? '' : params?.value;
+
+            // 清除命令或value为null/undefined时，视为删除操作
+            let valueToApply: unknown = '';
+            if (isClear) {
+              valueToApply = '';
+            } else if (params?.value === null || params?.value === undefined) {
+              // Delete key pressed - value is null/undefined, treat as clear
+              valueToApply = '';
+              console.log('[UniverSheet] Delete detected (null value), clearing range');
+            } else {
+              valueToApply = params?.value;
+            }
+
+            console.log('[UniverSheet] Applying value:', valueToApply, 'to range:', normalizedRange);
             const next = applyRangeToData(latestDataRef.current ?? [], normalizedRange, valueToApply);
             latestDataRef.current = next;
+            console.log('[UniverSheet] Calling onDataChange');
             onDataChangeRef.current?.(next);
           });
           changeListenerDisposableRef.current = disposable;
