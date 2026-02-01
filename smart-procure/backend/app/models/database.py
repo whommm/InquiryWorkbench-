@@ -1,7 +1,7 @@
 """
 Database models for SmartProcure
 """
-from sqlalchemy import create_engine, Column, String, Integer, Float, DateTime, JSON
+from sqlalchemy import create_engine, Column, String, Integer, Float, DateTime, JSON, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -58,6 +58,27 @@ class Supplier(Base):
     last_quote_date = Column(DateTime)
 
     # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SupplierProduct(Base):
+    """供应商-产品关联表，记录供应商报价过的产品"""
+    __tablename__ = "supplier_products"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    supplier_id = Column(Integer, ForeignKey("suppliers.id"), nullable=False, index=True)
+
+    # 产品信息（完整保存）
+    product_name = Column(String, index=True)
+    product_model = Column(String, index=True)
+    brand = Column(String, index=True)
+
+    # 报价信息
+    last_price = Column(Float)
+    quote_count = Column(Integer, default=1)
+
+    # 时间戳
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

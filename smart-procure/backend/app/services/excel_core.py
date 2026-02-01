@@ -100,6 +100,8 @@ def process_update(sheet_data: List[List[Any]], action: UpdateAction, db: Option
     model_col = cols.get("model")
     spec_col = cols.get("spec")
     brand_col = cols.get("brand")
+    name_col = cols.get("name")
+
     row_model = None
     if isinstance(model_col, int) and isinstance(row, list) and 0 <= model_col < len(row):
         v = row[model_col]
@@ -123,6 +125,14 @@ def process_update(sheet_data: List[List[Any]], action: UpdateAction, db: Option
             s = str(v).strip()
             if s and s.lower() != "none":
                 row_brand = s
+
+    row_name = None
+    if isinstance(name_col, int) and isinstance(row, list) and 0 <= name_col < len(row):
+        v = row[name_col]
+        if v is not None:
+            s = str(v).strip()
+            if s and s.lower() != "none":
+                row_name = s
 
     auto_remark = None
     if isinstance(action.quoted_model, str) and action.quoted_model.strip() and row_model:
@@ -231,6 +241,25 @@ def process_update(sheet_data: List[List[Any]], action: UpdateAction, db: Option
                     tags=supplier_info.get("tags")
                 )
                 print(f"✓ [供应商沉淀] 成功保存供应商: {saved_supplier.company_name} (电话: {saved_supplier.contact_phone})")
+
+                # 同时保存产品信息到 SupplierProduct 表
+                if row_name or row_model:
+                    try:
+                        price_val = float(action.price) if action.price is not None else None
+                    except:
+                        price_val = None
+
+                    saved_product = supplier_service.upsert_supplier_product(
+                        supplier_id=saved_supplier.id,
+                        product_name=row_name,
+                        product_model=row_model,
+                        brand=offer_brand or row_brand,
+                        price=price_val
+                    )
+                    if saved_product:
+                        print(f"✓ [产品沉淀] 成功保存产品: {row_name or row_model} (品牌: {offer_brand or row_brand})")
+                    else:
+                        print(f"[产品沉淀] 跳过 - 产品名称和型号均为空")
             except Exception as e:
                 # Log error but don't fail the update
                 print(f"✗ [供应商沉淀] 保存失败: {e}")

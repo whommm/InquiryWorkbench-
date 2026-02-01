@@ -7,6 +7,14 @@ interface RecommendPanelProps {
   onQuickQuote?: (supplierInfo: any) => void;
 }
 
+interface Product {
+  name: string | null;
+  model: string | null;
+  brand: string | null;
+  price: number | null;
+  quote_count: number;
+}
+
 interface Recommendation {
   rank: number;
   supplier_id: number | null;
@@ -21,6 +29,7 @@ interface Recommendation {
   star_rating: number;
   brands: string[];
   delivery_times: string[];
+  products?: Product[];
 }
 
 export const RecommendPanel: React.FC<RecommendPanelProps> = ({
@@ -247,9 +256,29 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
 
             {/* Brands */}
             {rec.brands && rec.brands.length > 0 && (
-              <div className="text-xs text-gray-500 mb-3">
+              <div className="text-xs text-gray-500 mb-2">
                 <span>品牌: </span>
                 <span>{rec.brands.join(', ')}</span>
+              </div>
+            )}
+
+            {/* Matched Products */}
+            {rec.products && rec.products.length > 0 && (
+              <div className="mb-3 p-2 bg-gray-50 rounded text-xs">
+                <div className="text-gray-500 mb-1">匹配产品:</div>
+                <div className="space-y-1">
+                  {rec.products.slice(0, 3).map((product, idx) => (
+                    <div key={idx} className="text-gray-700 truncate">
+                      {product.name || product.model}
+                      {product.price && (
+                        <span className="text-green-600 ml-2">¥{product.price}</span>
+                      )}
+                    </div>
+                  ))}
+                  {rec.products.length > 3 && (
+                    <div className="text-gray-400">...还有 {rec.products.length - 3} 个产品</div>
+                  )}
+                </div>
               </div>
             )}
 
