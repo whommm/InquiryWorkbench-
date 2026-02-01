@@ -78,7 +78,7 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
       const headers = sheetData[0] || [];
       const brandColIndex = headers.findIndex((h: any) => String(h) === '品牌');
       const nameColIndex = headers.findIndex((h: any) =>
-        ['物料名称', '产品名称', '名称'].includes(String(h))
+        ['物品名称', '物料名称', '产品名称', '名称'].includes(String(h))
       );
       const specColIndex = headers.findIndex((h: any) =>
         ['规格型号', '型号', '规格'].includes(String(h))
