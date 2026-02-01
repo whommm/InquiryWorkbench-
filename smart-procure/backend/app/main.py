@@ -2,6 +2,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .api import routes
 from .models.columns import HEADERS
+from .core.config import setup_logging
+
+# 初始化日志配置
+setup_logging()
 
 app = FastAPI(title="SmartProcure Backend")
 
