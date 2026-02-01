@@ -54,7 +54,7 @@ class SheetListItem(BaseModel):
 
 
 class RecommendRequest(BaseModel):
-    product_name: str = Field(..., min_length=1, max_length=200, description="产品名称")
+    product_name: str = Field("", max_length=200, description="产品名称")
     spec: Optional[str] = Field("", max_length=500, description="规格型号")
     brand: Optional[str] = Field("", max_length=100, description="品牌")
     limit: Optional[int] = Field(5, ge=1, le=20, description="返回数量限制")
