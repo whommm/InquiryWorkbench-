@@ -291,7 +291,15 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
             if (isProgrammaticWriteRef.current) return;
             if (!command || typeof command !== 'object') return;
             const cmd = command as { id?: unknown; params?: unknown };
-            if (cmd.id !== 'sheet.command.set-range-values') return;
+
+            // 监听设置值和清除命令
+            const isSetValues = cmd.id === 'sheet.command.set-range-values';
+            const isClear = cmd.id === 'sheet.command.clear-selection-all' ||
+                           cmd.id === 'sheet.command.clear-selection-content' ||
+                           cmd.id === 'sheet.command.delete-range-move-left' ||
+                           cmd.id === 'sheet.command.delete-range-move-up';
+
+            if (!isSetValues && !isClear) return;
 
             const params =
               cmd.params && typeof cmd.params === 'object'
@@ -327,7 +335,9 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
                     ? range.startColumn
                     : 0,
             };
-            const next = applyRangeToData(latestDataRef.current ?? [], normalizedRange, params?.value);
+            // 清除命令时value为空字符串
+            const valueToApply = isClear ? '' : params?.value;
+            const next = applyRangeToData(latestDataRef.current ?? [], normalizedRange, valueToApply);
             latestDataRef.current = next;
             onDataChangeRef.current?.(next);
           });
