@@ -97,8 +97,6 @@ export const useProcureState = () => {
           chat_history: updates.chatHistory,
         });
         console.log('[Chat] ✓ 数据已保存');
-        // 标记为已保存，避免触发自动保存
-        updates.isDirty = false;
       }
 
       console.log('[Chat] 更新标签页数据...');

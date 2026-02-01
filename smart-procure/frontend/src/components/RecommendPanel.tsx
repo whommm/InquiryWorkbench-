@@ -127,7 +127,7 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
     }
   };
 
-  const handleQuickQuote = (rec: Recommendation) => {
+  const _handleQuickQuote = (rec: Recommendation) => {
     if (onQuickQuote) {
       onQuickQuote({
         supplier_name: rec.company_name,

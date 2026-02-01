@@ -115,7 +115,7 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
       }
 
       const range = ws.getRange(0, 0, rowCount, colCount);
-      await Promise.resolve(range.setValues(normalized));
+      await Promise.resolve(range.setValues(normalized as any));
       try {
         ws.refreshCanvas?.();
       } catch {
