@@ -5,6 +5,7 @@ import UniverSheet from './components/UniverSheet';
 import TabBar from './components/TabBar';
 import HistoryPanel from './components/HistoryPanel';
 import SupplierPanel from './components/SupplierPanel';
+import { RecommendPanel } from './components/RecommendPanel';
 import { useProcureState } from './hooks/useProcureState';
 import { useTabsStore } from './stores/useTabsStore';
 import { useAutoSave } from './hooks/useAutoSave';
@@ -14,6 +15,8 @@ function App() {
   const { sheetData, chatHistory, isThinking, handleSendMessage, handleFileUpload, handleSheetDataChange, clearChatHistory } = useProcureState();
   const [showHistory, setShowHistory] = useState(false);
   const [showSuppliers, setShowSuppliers] = useState(false);
+  const [showRecommend, setShowRecommend] = useState(false);
+  const [selectedRow, setSelectedRow] = useState<number | null>(null);
 
   // Initialize tabs on mount
   useEffect(() => {
@@ -22,6 +25,23 @@ function App() {
 
   // Enable auto-save for active tab
   useAutoSave(activeTabId);
+
+  // Handle row click from UniverSheet
+  const handleRowClick = (rowIndex: number) => {
+    console.log('[App] handleRowClick called with rowIndex:', rowIndex);
+    console.log('[App] Current showRecommend state:', showRecommend);
+    setSelectedRow(rowIndex);
+    if (!showRecommend) {
+      console.log('[App] Opening recommend panel');
+      setShowRecommend(true);
+    }
+  };
+
+  // Handle quick quote from RecommendPanel
+  const handleQuickQuote = (supplierInfo: any) => {
+    const message = `供应商：${supplierInfo.supplier_name}${supplierInfo.contact_name ? `，联系人：${supplierInfo.contact_name}` : ''}${supplierInfo.contact_phone ? `，电话：${supplierInfo.contact_phone}` : ''}，参考价格：${supplierInfo.avg_price}元`;
+    handleSendMessage(message);
+  };
 
   if (isLoading) {
     return (
@@ -49,6 +69,17 @@ function App() {
         >
           供应商
         </button>
+        <button
+          onClick={() => setShowRecommend(!showRecommend)}
+          className={`px-3 py-1.5 text-sm rounded transition-colors whitespace-nowrap ${
+            showRecommend
+              ? 'bg-purple-600 text-white hover:bg-purple-700'
+              : 'bg-purple-500 text-white hover:bg-purple-600'
+          }`}
+          title="供应商推荐"
+        >
+          {showRecommend ? '隐藏推荐' : '显示推荐'}
+        </button>
       </div>
       <div className="flex-1 overflow-hidden">
         <Layout
@@ -62,7 +93,24 @@ function App() {
             />
           }
           right={
-            <UniverSheet data={sheetData} onDataChange={handleSheetDataChange} />
+            <div className="h-full flex">
+              <div className="flex-1 min-w-0">
+                <UniverSheet
+                  data={sheetData}
+                  onDataChange={handleSheetDataChange}
+                  onRowClick={handleRowClick}
+                />
+              </div>
+              {showRecommend && (
+                <div className="w-80 border-l border-gray-200 bg-white">
+                  <RecommendPanel
+                    selectedRow={selectedRow}
+                    sheetData={sheetData}
+                    onQuickQuote={handleQuickQuote}
+                  />
+                </div>
+              )}
+            </div>
           }
         />
       </div>

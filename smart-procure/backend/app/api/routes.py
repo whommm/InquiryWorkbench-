@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from urllib.parse import quote
+from datetime import datetime
 from ..models.types import ChatRequest, ChatResponse, UpdateAction
 from ..models.database import get_db, init_db
 from ..services.db_service import DBService
@@ -50,6 +51,13 @@ class SheetListItem(BaseModel):
     completion_rate: float
     created_at: str
     updated_at: str
+
+
+class RecommendRequest(BaseModel):
+    product_name: str
+    spec: Optional[str] = ""
+    brand: Optional[str] = ""
+    limit: Optional[int] = 5
 
 
 def get_sheet_state_summary(sheet_data):
@@ -1057,5 +1065,67 @@ async def delete_supplier_endpoint(supplier_id: int, db: Session = Depends(get_d
 
     except HTTPException:
         raise
+
+
+@router.post("/suppliers/recommend")
+async def recommend_suppliers_endpoint(request: RecommendRequest, db: Session = Depends(get_db)):
+    """Recommend top suppliers for a specific product"""
+    try:
+        supplier_service = SupplierService(db)
+        recommendations = supplier_service.recommend_suppliers(
+            product_name=request.product_name,
+            spec=request.spec or "",
+            brand=request.brand or "",
+            limit=request.limit or 5
+        )
+
+        # Format response
+        result = []
+        for idx, rec in enumerate(recommendations, start=1):
+            # Calculate star rating (1-5 stars based on recommendation score)
+            star_rating = max(1, min(5, int(rec["recommendation_score"] * 5) + 1))
+
+            # Format last quote date
+            days_ago = (datetime.utcnow() - rec["last_quote_date"]).days
+            if days_ago == 0:
+                last_quote_text = "今天"
+            elif days_ago == 1:
+                last_quote_text = "1天前"
+            elif days_ago < 30:
+                last_quote_text = f"{days_ago}天前"
+            elif days_ago < 365:
+                last_quote_text = f"{days_ago // 30}个月前"
+            else:
+                last_quote_text = f"{days_ago // 365}年前"
+
+            result.append({
+                "rank": idx,
+                "supplier_id": rec.get("supplier_id"),
+                "company_name": rec.get("company_name", rec["supplier_name"]),
+                "contact_name": rec.get("contact_name"),
+                "contact_phone": rec.get("contact_phone"),
+                "quote_count": rec["quote_count"],
+                "avg_price": round(rec["avg_price"], 2),
+                "min_price": round(rec["min_price"], 2),
+                "max_price": round(rec["max_price"], 2),
+                "last_quote_date": rec["last_quote_date"].isoformat(),
+                "last_quote_text": last_quote_text,
+                "star_rating": star_rating,
+                "recommendation_score": round(rec["recommendation_score"], 3),
+                "brands": rec["brands"],
+                "delivery_times": rec["delivery_times"][:3]  # Show up to 3 recent delivery times
+            })
+
+        return {
+            "recommendations": result,
+            "total": len(result),
+            "query": {
+                "product_name": request.product_name,
+                "spec": request.spec,
+                "brand": request.brand
+            }
+        }
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete supplier: {str(e)}")
+        print(f"[ERROR] Failed to recommend suppliers: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to recommend suppliers: {str(e)}")

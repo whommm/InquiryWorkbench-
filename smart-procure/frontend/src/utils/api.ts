@@ -86,3 +86,13 @@ export const deleteSupplier = async (supplierId: number) => {
   const response = await api.delete(`/suppliers/${supplierId}`);
   return response.data;
 };
+
+export const recommendSuppliers = async (data: {
+  product_name: string;
+  spec?: string;
+  brand?: string;
+  limit?: number;
+}) => {
+  const response = await api.post('/suppliers/recommend', data);
+  return response.data;
+};

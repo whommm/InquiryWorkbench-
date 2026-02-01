@@ -33,10 +33,12 @@ import SheetsFormulaUIZhCN from '@univerjs/sheets-formula-ui/locale/zh-CN';
 interface UniverSheetProps {
   data: unknown[][];
   onDataChange?: (next: unknown[][]) => void;
+  onRowClick?: (rowIndex: number) => void;
 }
 
-const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange }) => {
+const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClick }) => {
   const onDataChangeRef = useRef<typeof onDataChange>(onDataChange);
+  const onRowClickRef = useRef<typeof onRowClick>(onRowClick);
   const containerRef = useRef<HTMLDivElement>(null);
   const univerRef = useRef<Univer | null>(null);
   const univerAPIRef = useRef<ReturnType<typeof FUniver.newAPI> | null>(null);
@@ -323,6 +325,61 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange }) => {
             onDataChangeRef.current?.(next);
           });
           changeListenerDisposableRef.current = disposable;
+        }
+
+        // Add row click listener
+        if (typeof univerAPI.onCommandExecuted === 'function') {
+          console.log('[UniverSheet] Registering onCommandExecuted listener');
+          univerAPI.onCommandExecuted((command: unknown) => {
+            if (!command || typeof command !== 'object') return;
+            const cmd = command as { id?: unknown; params?: unknown };
+
+            // Log all commands to see what's being executed
+            console.log('[UniverSheet] Command executed:', cmd.id);
+
+            // Listen for selection change commands
+            if (cmd.id === 'sheet.command.set-selections' || cmd.id === 'sheet.operation.set-selections') {
+              console.log('[UniverSheet] Selection command detected!');
+              try {
+                const activeSheet = univerAPI.getActiveWorkbook()?.getActiveSheet();
+                if (!activeSheet) {
+                  console.log('[UniverSheet] No active sheet');
+                  return;
+                }
+
+                const selection = activeSheet.getSelection();
+                if (!selection) {
+                  console.log('[UniverSheet] No selection');
+                  return;
+                }
+
+                const range = selection.getActiveRange();
+                if (!range) {
+                  console.log('[UniverSheet] No active range');
+                  return;
+                }
+
+                // Access the internal _range object to get row number
+                const rangeData = (range as any)._range;
+                if (!rangeData) {
+                  console.log('[UniverSheet] No _range data');
+                  return;
+                }
+
+                const startRow = rangeData.startRow;
+                console.log('[UniverSheet] Selected row:', startRow);
+
+                if (typeof startRow === 'number' && startRow >= 0) {
+                  console.log('[UniverSheet] Calling onRowClick with row:', startRow);
+                  onRowClickRef.current?.(startRow);
+                }
+              } catch (e) {
+                console.warn('Failed to handle row click:', e);
+              }
+            }
+          });
+        } else {
+          console.warn('[UniverSheet] onCommandExecuted is not available');
         }
 
         if (
