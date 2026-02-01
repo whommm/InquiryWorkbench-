@@ -1,5 +1,6 @@
 /**
  * IndexedDB utility for storing inquiry tabs locally
+ * 按用户隔离数据
  */
 
 export interface InquiryTab {
@@ -15,16 +16,24 @@ export interface InquiryTab {
   isDirty: boolean;
 }
 
-const DB_NAME = 'SmartProcureDB';
+const DB_NAME_PREFIX = 'SmartProcureDB_';
 const DB_VERSION = 1;
 const STORE_NAME = 'tabs';
 
 /**
- * Open IndexedDB connection
+ * Get database name for a specific user
  */
-export const openDB = (): Promise<IDBDatabase> => {
+const getDBName = (userId: string): string => {
+  return `${DB_NAME_PREFIX}${userId}`;
+};
+
+/**
+ * Open IndexedDB connection for a specific user
+ */
+export const openDB = (userId: string): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    const dbName = getDBName(userId);
+    const request = indexedDB.open(dbName, DB_VERSION);
 
     request.onerror = () => {
       reject(new Error('Failed to open IndexedDB'));
@@ -50,8 +59,8 @@ export const openDB = (): Promise<IDBDatabase> => {
 /**
  * Save a tab to IndexedDB
  */
-export const saveTab = async (tab: InquiryTab): Promise<void> => {
-  const db = await openDB();
+export const saveTab = async (userId: string, tab: InquiryTab): Promise<void> => {
+  const db = await openDB(userId);
 
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([STORE_NAME], 'readwrite');
@@ -75,8 +84,8 @@ export const saveTab = async (tab: InquiryTab): Promise<void> => {
 /**
  * Get a single tab by ID
  */
-export const getTab = async (id: string): Promise<InquiryTab | null> => {
-  const db = await openDB();
+export const getTab = async (userId: string, id: string): Promise<InquiryTab | null> => {
+  const db = await openDB(userId);
 
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([STORE_NAME], 'readonly');
@@ -100,8 +109,8 @@ export const getTab = async (id: string): Promise<InquiryTab | null> => {
 /**
  * Get all tabs, sorted by updatedAt descending
  */
-export const getAllTabs = async (): Promise<InquiryTab[]> => {
-  const db = await openDB();
+export const getAllTabs = async (userId: string): Promise<InquiryTab[]> => {
+  const db = await openDB(userId);
 
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([STORE_NAME], 'readonly');
@@ -128,8 +137,8 @@ export const getAllTabs = async (): Promise<InquiryTab[]> => {
 /**
  * Delete a tab by ID
  */
-export const deleteTab = async (id: string): Promise<void> => {
-  const db = await openDB();
+export const deleteTab = async (userId: string, id: string): Promise<void> => {
+  const db = await openDB(userId);
 
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([STORE_NAME], 'readwrite');
@@ -153,8 +162,8 @@ export const deleteTab = async (id: string): Promise<void> => {
 /**
  * Clear all tabs
  */
-export const clearAllTabs = async (): Promise<void> => {
-  const db = await openDB();
+export const clearAllTabs = async (userId: string): Promise<void> => {
+  const db = await openDB(userId);
 
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([STORE_NAME], 'readwrite');

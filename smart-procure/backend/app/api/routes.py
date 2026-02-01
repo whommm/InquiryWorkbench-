@@ -368,7 +368,7 @@ def build_history_messages(chat_history, max_messages: int = 12, max_chars_per_m
     return items[-max_messages:]
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
+async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     print(f"[DEBUG] ========== 开始处理chat请求 ==========")
     print(f"[DEBUG] 用户消息: {request.message}")
     sheet_data = request.current_sheet_data or []
@@ -616,7 +616,7 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
                 print(f"[DEBUG] 批量更新 - cleaned: {cleaned}")
                 update_action = UpdateAction(**cleaned)
                 print(f"[DEBUG] 批量更新 - update_action.price: {update_action.price}, type: {type(update_action.price)}")
-                current_sheet = process_update(current_sheet, update_action, db)
+                current_sheet = process_update(current_sheet, update_action, db, user_id=current_user.id)
                 updated_rows.append(update_action.target_row)
 
             if not updated_rows:
@@ -738,7 +738,7 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
                 allowed = set(getattr(UpdateAction, "__fields__", {}).keys())
             cleaned = {k: v for k, v in data_dict.items() if k in allowed}
             update_action = UpdateAction(**cleaned)
-            new_sheet = process_update(sheet_data, update_action, db)
+            new_sheet = process_update(sheet_data, update_action, db, user_id=current_user.id)
 
             # 检查缺失字段并生成提醒
             missing_fields = []
@@ -1112,6 +1112,15 @@ async def recommend_suppliers_endpoint(request: RecommendRequest, db: Session = 
 
         # Format response
         result = []
+
+        # 批量查询创建者信息
+        creator_ids = [rec.get("created_by") for rec in recommendations if rec.get("created_by")]
+        creators = {}
+        if creator_ids:
+            from ..models.database import User
+            users = db.query(User).filter(User.id.in_(creator_ids)).all()
+            creators = {u.id: u.display_name or u.username for u in users}
+
         for idx, rec in enumerate(recommendations, start=1):
             # Calculate star rating (1-5 stars based on recommendation score)
             star_rating = max(1, min(5, int(rec["recommendation_score"] * 5) + 1))
@@ -1145,7 +1154,8 @@ async def recommend_suppliers_endpoint(request: RecommendRequest, db: Session = 
                 "recommendation_score": round(rec["recommendation_score"], 3),
                 "brands": rec["brands"],
                 "products": rec.get("products", []),
-                "delivery_times": rec.get("delivery_times", [])[:3]
+                "delivery_times": rec.get("delivery_times", [])[:3],
+                "created_by_name": creators.get(rec.get("created_by"))
             })
 
         return {

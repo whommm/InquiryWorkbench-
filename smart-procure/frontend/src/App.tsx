@@ -13,7 +13,7 @@ import { useAutoSave } from './hooks/useAutoSave';
 import AuthPage from './pages/AuthPage';
 
 function App() {
-  const { initializeTabs, isLoading, activeTabId } = useTabsStore();
+  const { initializeTabs, isLoading, activeTabId, clearTabs } = useTabsStore();
   const { sheetData, chatHistory, isThinking, handleSendMessage, handleFileUpload, handleSheetDataChange, clearChatHistory } = useProcureState();
   const { isAuthenticated, isLoading: authLoading, loadFromStorage, logout, user } = useAuthStore();
   const [showHistory, setShowHistory] = useState(false);
@@ -29,10 +29,10 @@ function App() {
 
   // Initialize tabs after authentication
   useEffect(() => {
-    if (isAuthenticated) {
-      initializeTabs();
+    if (isAuthenticated && user) {
+      initializeTabs(user.id);
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, user]);
 
   // Enable auto-save for active tab
   useAutoSave(activeTabId);
@@ -103,7 +103,7 @@ function App() {
           {user?.display_name || user?.username}
         </span>
         <button
-          onClick={logout}
+          onClick={() => { clearTabs(); logout(); }}
           className="px-3 py-1.5 text-sm bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors whitespace-nowrap"
         >
           退出

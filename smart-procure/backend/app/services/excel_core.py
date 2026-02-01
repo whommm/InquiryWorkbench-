@@ -77,7 +77,7 @@ def merge_offers(existing: Dict[str, Any], new: Dict[str, Any]) -> Dict[str, Any
             merged[key] = value
     return merged
 
-def process_update(sheet_data: List[List[Any]], action: UpdateAction, db: Optional["Session"] = None) -> List[List[Any]]:
+def process_update(sheet_data: List[List[Any]], action: UpdateAction, db: Optional["Session"] = None, user_id: Optional[str] = None) -> List[List[Any]]:
     # 0-based index for python list, but action.target_row is likely 1-based (Excel row number)
     # If header is row 1 (index 0), then row 2 is index 1.
     target_idx = action.target_row - 1 
@@ -238,7 +238,8 @@ def process_update(sheet_data: List[List[Any]], action: UpdateAction, db: Option
                     contact_phone=supplier_info["contact_phone"],
                     owner="系统自动",
                     contact_name=supplier_info.get("contact_name"),
-                    tags=supplier_info.get("tags")
+                    tags=supplier_info.get("tags"),
+                    created_by=user_id
                 )
                 print(f"✓ [供应商沉淀] 成功保存供应商: {saved_supplier.company_name} (电话: {saved_supplier.contact_phone})")
 

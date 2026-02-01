@@ -1,7 +1,7 @@
 """
 Database models for SmartProcure
 """
-from sqlalchemy import create_engine, Column, String, Integer, Float, DateTime, JSON, ForeignKey, Text
+from sqlalchemy import create_engine, Column, String, Integer, Float, DateTime, JSON, ForeignKey, Text, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.dialects.postgresql import UUID

@@ -148,9 +148,14 @@ class SupplierService:
         )
 
     def delete_supplier(self, supplier_id: int) -> bool:
-        """Delete a supplier"""
+        """Delete a supplier and its associated products"""
         supplier = self.get_supplier(supplier_id)
         if supplier:
+            # 先删除关联的产品记录
+            self.db.query(SupplierProduct).filter(
+                SupplierProduct.supplier_id == supplier_id
+            ).delete()
+            # 再删除供应商
             self.db.delete(supplier)
             self.db.commit()
             return True
@@ -308,7 +313,8 @@ class SupplierService:
                 "delivery_times": [],
                 "last_quote_date": supplier.last_quote_date or supplier.updated_at,
                 "avg_match_score": avg_score,
-                "recommendation_score": avg_score * 0.4 + min(stats["total_quote_count"] / 10, 1) * 0.6
+                "recommendation_score": avg_score * 0.4 + min(stats["total_quote_count"] / 10, 1) * 0.6,
+                "created_by": supplier.created_by
             })
 
         # 按推荐分数排序

@@ -30,6 +30,7 @@ interface Recommendation {
   brands: string[];
   delivery_times: string[];
   products?: Product[];
+  created_by_name?: string | null;
 }
 
 export const RecommendPanel: React.FC<RecommendPanelProps> = ({
@@ -264,7 +265,7 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
 
             {/* Matched Products */}
             {rec.products && rec.products.length > 0 && (
-              <div className="mb-3 p-2 bg-gray-50 rounded text-xs">
+              <div className="mb-2 p-2 bg-gray-50 rounded text-xs">
                 <div className="text-gray-500 mb-1">匹配产品:</div>
                 <div className="space-y-1">
                   {rec.products.slice(0, 3).map((product, idx) => (
@@ -282,20 +283,13 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
               </div>
             )}
 
-            {/* Actions */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => handleQuickQuote(rec)}
-                className="flex-1 px-3 py-2 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 transition-colors"
-              >
-                快速报价
-              </button>
-              <button
-                className="px-3 py-2 border border-gray-300 text-gray-700 text-sm rounded hover:bg-gray-50 transition-colors"
-              >
-                查看详情
-              </button>
-            </div>
+            {/* Source User */}
+            {rec.created_by_name && (
+              <div className="text-xs text-gray-500 border-t pt-2">
+                <span>来源: </span>
+                <span className="text-blue-600">{rec.created_by_name}</span>
+              </div>
+            )}
           </div>
         ))}
       </div>

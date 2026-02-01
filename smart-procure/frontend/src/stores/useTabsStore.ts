@@ -7,14 +7,16 @@ interface TabsState {
   tabs: InquiryTab[];
   activeTabId: string | null;
   isLoading: boolean;
+  userId: string | null;
 
   // Actions
-  initializeTabs: () => Promise<void>;
+  initializeTabs: (userId: string) => Promise<void>;
   createTab: (name?: string, initialData?: Partial<InquiryTab>) => Promise<string>;
   switchTab: (tabId: string) => void;
   closeTab: (tabId: string) => Promise<boolean>;
   updateTabData: (tabId: string, updates: Partial<InquiryTab>) => Promise<void>;
   getActiveTab: () => InquiryTab | null;
+  clearTabs: () => void;
 }
 
 const formatDate = (date: Date): string => {
@@ -30,14 +32,15 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   tabs: [],
   activeTabId: null,
   isLoading: false,
+  userId: null,
 
   /**
-   * Initialize tabs from IndexedDB
+   * Initialize tabs from IndexedDB for a specific user
    */
-  initializeTabs: async () => {
-    set({ isLoading: true });
+  initializeTabs: async (userId: string) => {
+    set({ isLoading: true, userId });
     try {
-      const tabs = await getAllTabs();
+      const tabs = await getAllTabs(userId);
 
       if (tabs.length === 0) {
         // Create default tab if none exist
@@ -51,7 +54,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
           isDirty: false,
         };
 
-        await saveTab(defaultTab);
+        await saveTab(userId, defaultTab);
         set({ tabs: [defaultTab], activeTabId: defaultTab.id });
       } else {
         // Load existing tabs, set first as active
@@ -81,6 +84,9 @@ export const useTabsStore = create<TabsState>((set, get) => ({
    * @param initialData - Optional initial data for the tab (sheetData, chatHistory, etc.)
    */
   createTab: async (name?: string, initialData?: Partial<InquiryTab>) => {
+    const { userId } = get();
+    if (!userId) throw new Error('User not initialized');
+
     const newTab: InquiryTab = {
       id: uuidv4(),
       name: name || `询价单-${formatDate(new Date())}`,
@@ -89,11 +95,11 @@ export const useTabsStore = create<TabsState>((set, get) => ({
       createdAt: Date.now(),
       updatedAt: Date.now(),
       isDirty: false,
-      ...initialData, // Apply initial data if provided
+      ...initialData,
     };
 
     try {
-      await saveTab(newTab);
+      await saveTab(userId, newTab);
       set(state => ({
         tabs: [...state.tabs, newTab],
         activeTabId: newTab.id,
@@ -121,7 +127,9 @@ export const useTabsStore = create<TabsState>((set, get) => ({
    * Returns true if closed, false if cancelled
    */
   closeTab: async (tabId: string) => {
-    const { tabs, activeTabId } = get();
+    const { tabs, activeTabId, userId } = get();
+    if (!userId) return false;
+
     const tab = tabs.find(t => t.id === tabId);
 
     if (!tab) return false;
@@ -136,7 +144,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
 
     try {
       // Delete from IndexedDB
-      await deleteTab(tabId);
+      await deleteTab(userId, tabId);
 
       // Remove from state
       const newTabs = tabs.filter(t => t.id !== tabId);
@@ -145,7 +153,6 @@ export const useTabsStore = create<TabsState>((set, get) => ({
       let newActiveTabId = activeTabId;
       if (activeTabId === tabId) {
         if (newTabs.length > 0) {
-          // Switch to the next tab, or previous if it was the last
           const closedIndex = tabs.findIndex(t => t.id === tabId);
           const nextIndex = closedIndex < newTabs.length ? closedIndex : newTabs.length - 1;
           newActiveTabId = newTabs[nextIndex].id;
@@ -166,9 +173,10 @@ export const useTabsStore = create<TabsState>((set, get) => ({
    * Update tab data
    */
   updateTabData: async (tabId: string, updates: Partial<InquiryTab>) => {
-    const { tabs } = get();
-    const tab = tabs.find(t => t.id === tabId);
+    const { tabs, userId } = get();
+    if (!userId) return;
 
+    const tab = tabs.find(t => t.id === tabId);
     if (!tab) return;
 
     const updatedTab: InquiryTab = {
@@ -179,7 +187,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
     };
 
     try {
-      await saveTab(updatedTab);
+      await saveTab(userId, updatedTab);
       set(state => ({
         tabs: state.tabs.map(t => t.id === tabId ? updatedTab : t),
       }));
@@ -195,5 +203,12 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   getActiveTab: () => {
     const { tabs, activeTabId } = get();
     return tabs.find(t => t.id === activeTabId) || null;
+  },
+
+  /**
+   * Clear all tabs (used when user logs out or switches)
+   */
+  clearTabs: () => {
+    set({ tabs: [], activeTabId: null, userId: null });
   },
 }));
