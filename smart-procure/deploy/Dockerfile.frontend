@@ -1,5 +1,5 @@
 # Build stage
-FROM docker.1ms.run/node:20-alpine as dev
+FROM node:20-alpine as dev
 
 WORKDIR /app
 
