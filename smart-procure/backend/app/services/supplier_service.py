@@ -1,13 +1,16 @@
 """
 Supplier service for CRUD operations
 """
+import logging
+import re
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 from app.models.database import Supplier, InquirySheet, SupplierProduct
 from difflib import SequenceMatcher
-import re
+
+logger = logging.getLogger(__name__)
 
 
 class SupplierService:
@@ -169,7 +172,6 @@ class SupplierService:
 
         # Try to extract company name (before first person name or phone)
         # Pattern: company name usually ends with '公司', '有限公司', '集团' etc.
-        import re
         match = re.search(r'^(.+?(?:公司|集团|厂|中心|部))', supplier_str)
         if match:
             return match.group(1).strip()
@@ -191,8 +193,8 @@ class SupplierService:
         1. 品牌优先：如果有品牌，优先匹配品牌
         2. 降级匹配：无品牌时，用产品名称或型号模糊匹配
         """
-        print(f"[推荐] 开始推荐供应商")
-        print(f"[推荐] 产品名称: {product_name}, 规格: {spec}, 品牌: {brand}")
+        logger.info("[推荐] 开始推荐供应商")
+        logger.info(f"[推荐] 产品名称: {product_name}, 规格: {spec}, 品牌: {brand}")
 
         matched_products = []
 
@@ -208,7 +210,7 @@ class SupplierService:
                     "match_type": "brand",
                     "match_score": 1.0
                 })
-            print(f"[推荐] 品牌匹配找到 {len(products)} 条记录")
+            logger.info(f"[推荐] 品牌匹配找到 {len(products)} 条记录")
 
         # 策略2：产品名称/型号模糊匹配（当品牌匹配结果不足时）
         if len(matched_products) < limit:
@@ -240,10 +242,10 @@ class SupplierService:
                             "match_score": score
                         })
 
-            print(f"[推荐] 模糊匹配后共 {len(matched_products)} 条记录")
+            logger.info(f"[推荐] 模糊匹配后共 {len(matched_products)} 条记录")
 
         if not matched_products:
-            print(f"[推荐] 没有找到匹配的产品记录")
+            logger.info("[推荐] 没有找到匹配的产品记录")
             return []
 
         # 按供应商聚合
@@ -307,5 +309,5 @@ class SupplierService:
         recommendations.sort(key=lambda x: x["recommendation_score"], reverse=True)
         top_recommendations = recommendations[:limit]
 
-        print(f"[推荐] 返回 {len(top_recommendations)} 个供应商")
+        logger.info(f"[推荐] 返回 {len(top_recommendations)} 个供应商")
         return top_recommendations
