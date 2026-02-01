@@ -17,6 +17,7 @@ function App() {
   const [showSuppliers, setShowSuppliers] = useState(false);
   const [showRecommend, setShowRecommend] = useState(false);
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
+  const [showChat, setShowChat] = useState(true);
 
   // Initialize tabs on mount
   useEffect(() => {
@@ -83,6 +84,8 @@ function App() {
       </div>
       <div className="flex-1 overflow-hidden">
         <Layout
+          collapsed={!showChat}
+          onToggleCollapse={() => setShowChat(!showChat)}
           left={
             <ChatPanel
               history={chatHistory}

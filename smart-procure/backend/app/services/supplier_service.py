@@ -296,7 +296,8 @@ class SupplierService:
                 "min_price": min(stats["prices"]) if stats["prices"] else 0,
                 "max_price": max(stats["prices"]) if stats["prices"] else 0,
                 "brands": list(stats["brands"]),
-                "products": stats["products"][:5],  # 最多显示5个产品
+                "products": stats["products"][:5],
+                "delivery_times": [],
                 "last_quote_date": supplier.last_quote_date or supplier.updated_at,
                 "avg_match_score": avg_score,
                 "recommendation_score": avg_score * 0.4 + min(stats["total_quote_count"] / 10, 1) * 0.6

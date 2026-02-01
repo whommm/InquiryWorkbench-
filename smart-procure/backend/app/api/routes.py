@@ -1113,7 +1113,8 @@ async def recommend_suppliers_endpoint(request: RecommendRequest, db: Session = 
                 "star_rating": star_rating,
                 "recommendation_score": round(rec["recommendation_score"], 3),
                 "brands": rec["brands"],
-                "delivery_times": rec["delivery_times"][:3]  # Show up to 3 recent delivery times
+                "products": rec.get("products", []),
+                "delivery_times": rec.get("delivery_times", [])[:3]
             })
 
         return {
