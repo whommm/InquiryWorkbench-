@@ -8,11 +8,14 @@ import SupplierPanel from './components/SupplierPanel';
 import { RecommendPanel } from './components/RecommendPanel';
 import { useProcureState } from './hooks/useProcureState';
 import { useTabsStore } from './stores/useTabsStore';
+import { useAuthStore } from './stores/useAuthStore';
 import { useAutoSave } from './hooks/useAutoSave';
+import AuthPage from './pages/AuthPage';
 
 function App() {
   const { initializeTabs, isLoading, activeTabId } = useTabsStore();
   const { sheetData, chatHistory, isThinking, handleSendMessage, handleFileUpload, handleSheetDataChange, clearChatHistory } = useProcureState();
+  const { isAuthenticated, isLoading: authLoading, loadFromStorage, logout, user } = useAuthStore();
   const [showHistory, setShowHistory] = useState(false);
   const [showSuppliers, setShowSuppliers] = useState(false);
   const [showRecommend, setShowRecommend] = useState(false);
@@ -21,8 +24,15 @@ function App() {
 
   // Initialize tabs on mount
   useEffect(() => {
-    initializeTabs();
+    loadFromStorage();
   }, []);
+
+  // Initialize tabs after authentication
+  useEffect(() => {
+    if (isAuthenticated) {
+      initializeTabs();
+    }
+  }, [isAuthenticated]);
 
   // Enable auto-save for active tab
   useAutoSave(activeTabId);
@@ -38,6 +48,18 @@ function App() {
     const message = `供应商：${supplierInfo.supplier_name}${supplierInfo.contact_name ? `，联系人：${supplierInfo.contact_name}` : ''}${supplierInfo.contact_phone ? `，电话：${supplierInfo.contact_phone}` : ''}，参考价格：${supplierInfo.avg_price}元`;
     handleSendMessage(message);
   };
+
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-gray-600">加载中...</div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <AuthPage />;
+  }
 
   if (isLoading) {
     return (
@@ -75,6 +97,16 @@ function App() {
           title="供应商推荐"
         >
           {showRecommend ? '隐藏推荐' : '显示推荐'}
+        </button>
+        <div className="flex-1" />
+        <span className="text-sm text-gray-600">
+          {user?.display_name || user?.username}
+        </span>
+        <button
+          onClick={logout}
+          className="px-3 py-1.5 text-sm bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors whitespace-nowrap"
+        >
+          退出
         </button>
       </div>
       <div className="flex-1 overflow-hidden">

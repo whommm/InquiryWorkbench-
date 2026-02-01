@@ -19,11 +19,15 @@ class DBService:
         name: str,
         sheet_data: list,
         chat_history: list,
+        user_id: str,
         item_count: int = 0,
         completion_rate: float = 0.0
     ) -> InquirySheet:
         """Save or update an inquiry sheet"""
-        existing = self.db.query(InquirySheet).filter(InquirySheet.id == sheet_id).first()
+        existing = self.db.query(InquirySheet).filter(
+            InquirySheet.id == sheet_id,
+            InquirySheet.user_id == user_id
+        ).first()
 
         if existing:
             # Update existing sheet
@@ -40,6 +44,7 @@ class DBService:
             # Create new sheet
             new_sheet = InquirySheet(
                 id=sheet_id,
+                user_id=user_id,
                 name=name,
                 sheet_data=sheet_data,
                 chat_history=chat_history,
@@ -51,23 +56,27 @@ class DBService:
             self.db.refresh(new_sheet)
             return new_sheet
 
-    def get_sheet(self, sheet_id: str) -> Optional[InquirySheet]:
+    def get_sheet(self, sheet_id: str, user_id: str) -> Optional[InquirySheet]:
         """Get a single inquiry sheet by ID"""
-        return self.db.query(InquirySheet).filter(InquirySheet.id == sheet_id).first()
+        return self.db.query(InquirySheet).filter(
+            InquirySheet.id == sheet_id,
+            InquirySheet.user_id == user_id
+        ).first()
 
-    def list_sheets(self, limit: int = 50, offset: int = 0) -> List[InquirySheet]:
+    def list_sheets(self, user_id: str, limit: int = 50, offset: int = 0) -> List[InquirySheet]:
         """Get list of inquiry sheets, ordered by updated_at descending"""
         return (
             self.db.query(InquirySheet)
+            .filter(InquirySheet.user_id == user_id)
             .order_by(InquirySheet.updated_at.desc())
             .limit(limit)
             .offset(offset)
             .all()
         )
 
-    def delete_sheet(self, sheet_id: str) -> bool:
+    def delete_sheet(self, sheet_id: str, user_id: str) -> bool:
         """Delete an inquiry sheet"""
-        sheet = self.get_sheet(sheet_id)
+        sheet = self.get_sheet(sheet_id, user_id)
         if sheet:
             self.db.delete(sheet)
             self.db.commit()

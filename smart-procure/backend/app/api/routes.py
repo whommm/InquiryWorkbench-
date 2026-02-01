@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from urllib.parse import quote
 from datetime import datetime
 from ..models.types import ChatRequest, ChatResponse, UpdateAction
-from ..models.database import get_db, init_db
+from ..models.database import get_db, init_db, User
 from ..services.db_service import DBService
 from ..services.supplier_service import SupplierService
 from ..services.excel_core import process_update
@@ -24,6 +24,7 @@ from ..services.sheet_schema import (
     get_row_slot_snapshot,
     fuzzy_match_rows,
 )
+from ..auth.utils import get_current_user
 import json
 import pandas as pd
 import io
@@ -846,7 +847,11 @@ async def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db
 
 
 @router.post("/sheets/save")
-async def save_sheet(request: SaveSheetRequest, db: Session = Depends(get_db)):
+async def save_sheet(
+    request: SaveSheetRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Save or update an inquiry sheet"""
     try:
         # Generate ID if not provided
@@ -883,6 +888,7 @@ async def save_sheet(request: SaveSheetRequest, db: Session = Depends(get_db)):
             name=request.name,
             sheet_data=request.sheet_data,
             chat_history=request.chat_history,
+            user_id=current_user.id,
             item_count=item_count,
             completion_rate=completion_rate
         )
@@ -898,11 +904,16 @@ async def save_sheet(request: SaveSheetRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/sheets/list")
-async def list_sheets(limit: int = 50, offset: int = 0, db: Session = Depends(get_db)):
+async def list_sheets(
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Get list of saved inquiry sheets"""
     try:
         db_service = DBService(db)
-        sheets = db_service.list_sheets(limit=limit, offset=offset)
+        sheets = db_service.list_sheets(user_id=current_user.id, limit=limit, offset=offset)
 
         result = []
         for sheet in sheets:
@@ -922,11 +933,15 @@ async def list_sheets(limit: int = 50, offset: int = 0, db: Session = Depends(ge
 
 
 @router.get("/sheets/{sheet_id}")
-async def get_sheet(sheet_id: str, db: Session = Depends(get_db)):
+async def get_sheet(
+    sheet_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Get a single inquiry sheet by ID"""
     try:
         db_service = DBService(db)
-        sheet = db_service.get_sheet(sheet_id)
+        sheet = db_service.get_sheet(sheet_id, user_id=current_user.id)
 
         if not sheet:
             raise HTTPException(status_code=404, detail="Sheet not found")
@@ -949,11 +964,15 @@ async def get_sheet(sheet_id: str, db: Session = Depends(get_db)):
 
 
 @router.delete("/sheets/{sheet_id}")
-async def delete_sheet(sheet_id: str, db: Session = Depends(get_db)):
+async def delete_sheet(
+    sheet_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Delete an inquiry sheet"""
     try:
         db_service = DBService(db)
-        success = db_service.delete_sheet(sheet_id)
+        success = db_service.delete_sheet(sheet_id, user_id=current_user.id)
 
         if not success:
             raise HTTPException(status_code=404, detail="Sheet not found")
@@ -967,11 +986,15 @@ async def delete_sheet(sheet_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/sheets/{sheet_id}/export")
-async def export_sheet(sheet_id: str, db: Session = Depends(get_db)):
+async def export_sheet(
+    sheet_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Export an inquiry sheet to Excel"""
     try:
         db_service = DBService(db)
-        sheet = db_service.get_sheet(sheet_id)
+        sheet = db_service.get_sheet(sheet_id, user_id=current_user.id)
 
         if not sheet:
             raise HTTPException(status_code=404, detail="Sheet not found")
@@ -1033,6 +1056,13 @@ async def list_suppliers_endpoint(limit: int = 50, offset: int = 0, db: Session 
 
         result = []
         for s in suppliers:
+            # 查询创建者信息
+            created_by_name = None
+            if s.created_by:
+                creator = db.query(User).filter(User.id == s.created_by).first()
+                if creator:
+                    created_by_name = creator.display_name or creator.username
+
             result.append({
                 "id": s.id,
                 "company_name": s.company_name,
@@ -1042,7 +1072,8 @@ async def list_suppliers_endpoint(limit: int = 50, offset: int = 0, db: Session 
                 "tags": s.tags or [],
                 "quote_count": s.quote_count,
                 "last_quote_date": s.last_quote_date.isoformat() if s.last_quote_date else None,
-                "created_at": s.created_at.isoformat() if s.created_at else None
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+                "created_by_name": created_by_name
             })
 
         return {"suppliers": result, "total": len(result)}

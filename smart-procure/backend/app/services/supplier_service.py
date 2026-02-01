@@ -25,7 +25,8 @@ class SupplierService:
         contact_phone: str,
         owner: str = "系统自动",
         contact_name: Optional[str] = None,
-        tags: Optional[List[str]] = None
+        tags: Optional[List[str]] = None,
+        created_by: Optional[str] = None
     ) -> Supplier:
         """Insert or update a supplier based on company_name"""
         existing = self.db.query(Supplier).filter(
@@ -57,6 +58,7 @@ class SupplierService:
                 owner=owner,
                 contact_name=contact_name,
                 tags=tags or [],
+                created_by=created_by,
                 quote_count=1,
                 last_quote_date=datetime.utcnow()
             )

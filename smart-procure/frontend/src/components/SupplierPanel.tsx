@@ -11,6 +11,7 @@ interface Supplier {
   quote_count: number;
   last_quote_date: string | null;
   created_at?: string;
+  created_by_name?: string | null;
 }
 
 interface SupplierPanelProps {
@@ -154,6 +155,12 @@ const SupplierPanel = ({ onClose }: SupplierPanelProps) => {
                           <span className="font-medium">录入方式：</span>
                           {supplier.owner}
                         </div>
+                        {supplier.created_by_name && (
+                          <div>
+                            <span className="font-medium">来源：</span>
+                            <span className="text-blue-600">{supplier.created_by_name}</span>
+                          </div>
+                        )}
                         {supplier.tags && supplier.tags.length > 0 && (
                           <div className="col-span-2">
                             <span className="font-medium">标签：</span>
