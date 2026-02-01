@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from urllib.parse import quote
@@ -54,10 +54,10 @@ class SheetListItem(BaseModel):
 
 
 class RecommendRequest(BaseModel):
-    product_name: str
-    spec: Optional[str] = ""
-    brand: Optional[str] = ""
-    limit: Optional[int] = 5
+    product_name: str = Field(..., min_length=1, max_length=200, description="产品名称")
+    spec: Optional[str] = Field("", max_length=500, description="规格型号")
+    brand: Optional[str] = Field("", max_length=100, description="品牌")
+    limit: Optional[int] = Field(5, ge=1, le=20, description="返回数量限制")
 
 
 def get_sheet_state_summary(sheet_data):
