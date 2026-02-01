@@ -64,48 +64,49 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
       setLoading(true);
       setError(null);
 
-      // Extract product info from the selected row
       const row = sheetData[rowIndex];
       console.log('[RecommendPanel] Row data:', row);
 
       if (!row || row.length < 3) {
-        console.log('[RecommendPanel] Row data invalid, length:', row?.length);
         setError('无法获取产品信息');
         return;
       }
 
-      // Dynamically identify column indices from headers
       const headers = sheetData[0] || [];
+
+      // 精准匹配"品牌"列
       const brandColIndex = headers.findIndex((h: any) => String(h) === '品牌');
-      const nameColIndex = headers.findIndex((h: any) =>
-        ['物品名称', '物料名称', '产品名称', '名称'].includes(String(h))
-      );
-      const specColIndex = headers.findIndex((h: any) =>
-        ['规格型号', '型号', '规格'].includes(String(h))
-      );
+      const brand = brandColIndex >= 0 ? String(row[brandColIndex] || '').trim() : '';
 
-      console.log('[RecommendPanel] Column indices:', { brandColIndex, nameColIndex, specColIndex });
+      // 清洗前5列数据作为搜索关键词（排除纯数字、单位等无意义数据）
+      const basicColCount = Math.min(6, row.length); // 前6列是基础列
+      const searchTerms: string[] = [];
 
-      const brand = brandColIndex >= 0 ? String(row[brandColIndex] || '') : '';
-      const productName = nameColIndex >= 0 ? String(row[nameColIndex] || '') : '';
-      const spec = specColIndex >= 0 ? String(row[specColIndex] || '') : '';
+      for (let i = 0; i < basicColCount; i++) {
+        if (i === brandColIndex) continue; // 跳过品牌列
+        const val = String(row[i] || '').trim();
+        if (!val) continue;
+        // 过滤纯数字、常见单位
+        if (/^\d+$/.test(val)) continue;
+        if (['台', '个', '件', '套', '只', '米', '公斤', 'kg', 'pcs', 'm'].includes(val.toLowerCase())) continue;
+        searchTerms.push(val);
+      }
 
-      console.log('[RecommendPanel] Extracted product info:', { productName, spec, brand });
+      const productName = searchTerms.join(' ');
+      console.log('[RecommendPanel] Extracted:', { brand, searchTerms, productName });
 
-      if (!productName) {
-        console.log('[RecommendPanel] Product name is empty');
-        setError('产品名称为空');
+      if (!productName && !brand) {
+        setError('产品信息为空');
         setRecommendations([]);
         return;
       }
 
-      setProductInfo({ name: productName, spec, brand });
+      setProductInfo({ name: productName, spec: '', brand });
 
       // Call API
-      console.log('[RecommendPanel] Calling recommendSuppliers API...');
       const response = await recommendSuppliers({
         product_name: productName,
-        spec: spec,
+        spec: '',
         brand: brand,
         limit: 5
       });
@@ -114,7 +115,6 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
       setRecommendations(response.recommendations || []);
 
       if (response.recommendations.length === 0) {
-        console.log('[RecommendPanel] No recommendations returned');
         setError('暂无推荐供应商');
       }
     } catch (err: any) {
