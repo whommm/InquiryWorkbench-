@@ -4,7 +4,6 @@ import { recommendSuppliers } from '../utils/api';
 interface RecommendPanelProps {
   selectedRow: number | null;
   sheetData: any[][];
-  onQuickQuote?: (supplierInfo: any) => void;
 }
 
 interface Product {
@@ -35,8 +34,7 @@ interface Recommendation {
 
 export const RecommendPanel: React.FC<RecommendPanelProps> = ({
   selectedRow,
-  sheetData,
-  onQuickQuote
+  sheetData
 }) => {
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [loading, setLoading] = useState(false);
