@@ -30,12 +30,7 @@ function App() {
   // Handle row click from UniverSheet
   const handleRowClick = (rowIndex: number) => {
     console.log('[App] handleRowClick called with rowIndex:', rowIndex);
-    console.log('[App] Current showRecommend state:', showRecommend);
     setSelectedRow(rowIndex);
-    if (!showRecommend) {
-      console.log('[App] Opening recommend panel');
-      setShowRecommend(true);
-    }
   };
 
   // Handle quick quote from RecommendPanel
