@@ -4,6 +4,7 @@ import "@univerjs/ui/lib/index.css";
 import "@univerjs/sheets-ui/lib/index.css";
 import "@univerjs/docs-ui/lib/index.css";
 import "@univerjs/sheets-formula-ui/lib/index.css";
+import "@univerjs/sheets-filter-ui/lib/index.css";
 
 import { Univer, UniverInstanceType, LocaleType, Tools } from "@univerjs/core";
 import { FUniver } from '@univerjs/core/facade';
@@ -14,6 +15,8 @@ import { UniverSheetsPlugin } from "@univerjs/sheets";
 import { UniverSheetsUIPlugin } from "@univerjs/sheets-ui";
 import { UniverSheetsFormulaPlugin } from "@univerjs/sheets-formula";
 import { UniverSheetsFormulaUIPlugin } from "@univerjs/sheets-formula-ui";
+import { UniverSheetsFilterPlugin } from "@univerjs/sheets-filter";
+import { UniverSheetsFilterUIPlugin } from "@univerjs/sheets-filter-ui";
 import { UniverUIPlugin } from "@univerjs/ui";
 import { UniverDocsPlugin } from "@univerjs/docs";
 import { UniverDocsUIPlugin } from "@univerjs/docs-ui";
@@ -29,6 +32,7 @@ import SheetsUIZhCN from '@univerjs/sheets-ui/locale/zh-CN';
 import DocsUIZhCN from '@univerjs/docs-ui/locale/zh-CN';
 import SheetsFormulaZhCN from '@univerjs/sheets-formula/locale/zh-CN';
 import SheetsFormulaUIZhCN from '@univerjs/sheets-formula-ui/locale/zh-CN';
+import SheetsFilterUIZhCN from '@univerjs/sheets-filter-ui/locale/zh-CN';
 
 interface UniverSheetProps {
   data: unknown[][];
@@ -211,7 +215,8 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
               SheetsUIZhCN,
               DocsUIZhCN,
               SheetsFormulaZhCN,
-              SheetsFormulaUIZhCN
+              SheetsFormulaUIZhCN,
+              SheetsFilterUIZhCN
             ),
           },
         });
@@ -235,6 +240,8 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
         univer.registerPlugin(UniverSheetsUIPlugin);
         univer.registerPlugin(UniverSheetsFormulaPlugin);
         univer.registerPlugin(UniverSheetsFormulaUIPlugin);
+        univer.registerPlugin(UniverSheetsFilterPlugin);
+        univer.registerPlugin(UniverSheetsFilterUIPlugin);
         univer.createUnit(UniverInstanceType.UNIVER_SHEET, {});
 
         const univerAPI = FUniver.newAPI(univer);
