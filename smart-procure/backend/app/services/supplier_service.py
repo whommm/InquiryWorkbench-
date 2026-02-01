@@ -277,10 +277,14 @@ class SupplierService:
             if p.brand:
                 stats["brands"].add(p.brand)
 
-        # 构建推荐列表
+        # 构建推荐列表 - 批量查询供应商避免N+1问题
+        supplier_ids = list(supplier_stats.keys())
+        suppliers = self.db.query(Supplier).filter(Supplier.id.in_(supplier_ids)).all()
+        supplier_map = {s.id: s for s in suppliers}
+
         recommendations = []
         for sid, stats in supplier_stats.items():
-            supplier = self.db.query(Supplier).filter(Supplier.id == sid).first()
+            supplier = supplier_map.get(sid)
             if not supplier:
                 continue
 
