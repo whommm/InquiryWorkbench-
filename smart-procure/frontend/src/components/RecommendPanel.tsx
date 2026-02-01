@@ -127,17 +127,6 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
     }
   };
 
-  const _handleQuickQuote = (rec: Recommendation) => {
-    if (onQuickQuote) {
-      onQuickQuote({
-        supplier_name: rec.company_name,
-        contact_name: rec.contact_name,
-        contact_phone: rec.contact_phone,
-        avg_price: rec.avg_price
-      });
-    }
-  };
-
   const renderStars = (rating: number) => {
     return '⭐'.repeat(rating);
   };
