@@ -43,12 +43,6 @@ function App() {
     setSelectedRow(rowIndex);
   };
 
-  // Handle quick quote from RecommendPanel
-  const handleQuickQuote = (supplierInfo: any) => {
-    const message = `供应商：${supplierInfo.supplier_name}${supplierInfo.contact_name ? `，联系人：${supplierInfo.contact_name}` : ''}${supplierInfo.contact_phone ? `，电话：${supplierInfo.contact_phone}` : ''}，参考价格：${supplierInfo.avg_price}元`;
-    handleSendMessage(message);
-  };
-
   if (authLoading) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -136,7 +130,6 @@ function App() {
                   <RecommendPanel
                     selectedRow={selectedRow}
                     sheetData={sheetData}
-                    onQuickQuote={handleQuickQuote}
                   />
                 </div>
               )}
