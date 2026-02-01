@@ -282,7 +282,7 @@ def build_smart_context(message: str, sheet_data: list, max_rows: int = 50) -> d
         包含品牌上下文和相关产品列表的字典
     """
     if not sheet_data or len(sheet_data) < 2:
-        return {"brand_context": None, "relevant_rows": []}
+        return {"brand_context": None, "relevant_rows": [], "total_matched": 0}
 
     # 1. 提取品牌和型号
     brand_context = extract_brand_from_message(message, sheet_data)
