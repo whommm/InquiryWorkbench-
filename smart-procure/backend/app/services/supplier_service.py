@@ -12,6 +12,40 @@ from difflib import SequenceMatcher
 
 logger = logging.getLogger(__name__)
 
+# 品牌别名映射表（中英文、常见变体）
+BRAND_ALIASES = {
+    "festo": ["festo", "费斯托", "德国festo", "festo德国"],
+    "smc": ["smc", "日本smc", "smc日本"],
+    "parker": ["parker", "派克", "美国派克"],
+    "bosch": ["bosch", "博世", "力士乐", "rexroth", "bosch rexroth"],
+    "siemens": ["siemens", "西门子"],
+    "abb": ["abb"],
+    "schneider": ["schneider", "施耐德"],
+    "omron": ["omron", "欧姆龙"],
+    "mitsubishi": ["mitsubishi", "三菱"],
+    "keyence": ["keyence", "基恩士"],
+    "ifm": ["ifm", "易福门"],
+    "sick": ["sick", "西克"],
+    "balluff": ["balluff", "巴鲁夫"],
+    "turck": ["turck", "图尔克"],
+    "phoenix": ["phoenix", "菲尼克斯", "phoenix contact"],
+    "wago": ["wago", "万可"],
+    "pilz": ["pilz", "皮尔兹"],
+    "norgren": ["norgren", "诺冠"],
+    "camozzi": ["camozzi", "康茂盛"],
+    "airtac": ["airtac", "亚德客"],
+}
+
+def _build_brand_lookup() -> Dict[str, str]:
+    """构建品牌别名到标准名的映射"""
+    lookup = {}
+    for standard, aliases in BRAND_ALIASES.items():
+        for alias in aliases:
+            lookup[alias.lower()] = standard
+    return lookup
+
+BRAND_LOOKUP = _build_brand_lookup()
+
 
 class SupplierService:
     """Service for managing suppliers in database"""
@@ -66,6 +100,15 @@ class SupplierService:
             self.db.commit()
             self.db.refresh(new_supplier)
             return new_supplier
+
+    def get_existing_phones(self, phones: List[str]) -> set:
+        """检查哪些电话号码已存在于数据库中"""
+        if not phones:
+            return set()
+        existing = self.db.query(Supplier.contact_phone).filter(
+            Supplier.contact_phone.in_(phones)
+        ).all()
+        return set(row[0] for row in existing)
 
     def upsert_supplier_product(
         self,
@@ -167,6 +210,43 @@ class SupplierService:
             return 0.0
         return SequenceMatcher(None, str1.lower(), str2.lower()).ratio()
 
+    def _normalize_model(self, model: str) -> str:
+        """标准化型号：去除横杠、空格、斜杠，转小写"""
+        if not model:
+            return ""
+        # 去除常见分隔符，转小写
+        normalized = re.sub(r'[-_\s/\\.]', '', model.lower())
+        return normalized
+
+    def _normalize_brand(self, brand: str) -> str:
+        """标准化品牌名：转换为标准名称"""
+        if not brand:
+            return ""
+        brand_lower = brand.strip().lower()
+        # 查找别名映射
+        return BRAND_LOOKUP.get(brand_lower, brand_lower)
+
+    def _match_brand(self, brand1: str, brand2: str) -> bool:
+        """判断两个品牌是否匹配（考虑别名）"""
+        if not brand1 or not brand2:
+            return False
+        return self._normalize_brand(brand1) == self._normalize_brand(brand2)
+
+    def _calculate_model_similarity(self, model1: str, model2: str) -> float:
+        """计算型号相似度（标准化后比较）"""
+        if not model1 or not model2:
+            return 0.0
+        norm1 = self._normalize_model(model1)
+        norm2 = self._normalize_model(model2)
+        # 精确匹配
+        if norm1 == norm2:
+            return 1.0
+        # 包含关系
+        if norm1 in norm2 or norm2 in norm1:
+            return 0.9
+        # 模糊匹配
+        return SequenceMatcher(None, norm1, norm2).ratio()
+
     def _parse_supplier_name(self, supplier_str: str) -> str:
         """Parse supplier string to extract company name
         Format: '公司名称 联系人 电话' -> '公司名称'
@@ -196,60 +276,100 @@ class SupplierService:
     ) -> List[Dict[str, Any]]:
         """基于 SupplierProduct 表推荐供应商
 
-        匹配策略：
-        1. 品牌优先：如果有品牌，优先匹配品牌
-        2. 降级匹配：无品牌时，用产品名称或型号模糊匹配
+        匹配策略（优先级从高到低）：
+        1. 品牌+型号双匹配（最高优先级）
+        2. 型号精确/模糊匹配
+        3. 品牌匹配（含别名）
+        4. 产品名称模糊匹配
         """
         logger.info("[推荐] 开始推荐供应商")
         logger.info(f"[推荐] 产品名称: {product_name}, 规格: {spec}, 品牌: {brand}")
 
+        # 获取所有供应商产品记录
+        all_products = self.db.query(SupplierProduct).all()
         matched_products = []
 
-        # 策略1：品牌精确匹配
-        if brand and brand.strip():
-            brand_clean = brand.strip()
-            products = self.db.query(SupplierProduct).filter(
-                SupplierProduct.brand == brand_clean
-            ).all()
-            for p in products:
+        # 标准化输入
+        norm_brand = self._normalize_brand(brand) if brand else ""
+        norm_spec = self._normalize_model(spec) if spec else ""
+        norm_name = self._normalize_model(product_name) if product_name else ""
+
+        # 从 product_name 中提取可能的型号（按空格分割）
+        search_terms = []
+        if product_name:
+            search_terms = [t.strip() for t in product_name.split() if t.strip()]
+
+        logger.info(f"[推荐] 标准化后: norm_brand={norm_brand}, norm_spec={norm_spec}, search_terms={search_terms}")
+
+        for p in all_products:
+            score = 0.0
+            match_type = "none"
+            match_details = []
+
+            # 1. 品牌匹配（含别名）
+            brand_matched = False
+            if norm_brand and p.brand:
+                if self._match_brand(brand, p.brand):
+                    brand_matched = True
+                    score += 0.4
+                    match_details.append("brand")
+
+            # 2. 型号匹配（标准化后）
+            model_score = 0.0
+            # 优先用 spec 匹配，如果 spec 为空则用 search_terms 中的每个词尝试匹配
+            if norm_spec and p.product_model:
+                model_score = self._calculate_model_similarity(spec, p.product_model)
+            elif search_terms and p.product_model:
+                # 用 product_name 中的每个词尝试匹配型号
+                for term in search_terms:
+                    term_score = self._calculate_model_similarity(term, p.product_model)
+                    if term_score > model_score:
+                        model_score = term_score
+
+            if model_score >= 0.6:  # 降低阈值
+                score += model_score * 0.5
+                match_details.append(f"model({model_score:.2f})")
+
+            # 3. 产品名称匹配
+            name_score = 0.0
+            if p.product_name:
+                # 用整个 product_name 匹配
+                if norm_name:
+                    name_score = self._calculate_model_similarity(product_name, p.product_name)
+                # 也用 search_terms 中的每个词尝试匹配
+                if search_terms:
+                    for term in search_terms:
+                        term_score = self._calculate_model_similarity(term, p.product_name)
+                        if term_score > name_score:
+                            name_score = term_score
+
+            if name_score >= 0.4:  # 降低阈值
+                score += name_score * 0.3
+                match_details.append(f"name({name_score:.2f})")
+
+            # 确定匹配类型
+            if brand_matched and model_score >= 0.6:
+                match_type = "brand+model"
+                score += 0.2  # 双匹配加分
+            elif model_score >= 0.8:
+                match_type = "model_exact"
+            elif model_score >= 0.6:
+                match_type = "model_fuzzy"
+            elif brand_matched:
+                match_type = "brand"
+            elif name_score >= 0.4:
+                match_type = "name"
+
+            # 只保留有效匹配（降低阈值以获得更多结果）
+            if score >= 0.2:
                 matched_products.append({
                     "product": p,
-                    "match_type": "brand",
-                    "match_score": 1.0
+                    "match_type": match_type,
+                    "match_score": score,
+                    "match_details": match_details
                 })
-            logger.info(f"[推荐] 品牌匹配找到 {len(products)} 条记录")
 
-        # 策略2：产品名称/型号模糊匹配（当品牌匹配结果不足时）
-        if len(matched_products) < limit:
-            search_terms = []
-            if product_name and product_name.strip():
-                search_terms.append(product_name.strip())
-            if spec and spec.strip():
-                search_terms.append(spec.strip())
-
-            for term in search_terms:
-                # 使用 LIKE 进行模糊匹配
-                products = self.db.query(SupplierProduct).filter(
-                    (SupplierProduct.product_name.like(f"%{term}%")) |
-                    (SupplierProduct.product_model.like(f"%{term}%"))
-                ).all()
-
-                for p in products:
-                    # 避免重复
-                    if any(m["product"].id == p.id for m in matched_products):
-                        continue
-                    # 计算相似度
-                    name_sim = self._calculate_similarity(term, p.product_name or "")
-                    model_sim = self._calculate_similarity(term, p.product_model or "")
-                    score = max(name_sim, model_sim)
-                    if score >= 0.3:  # 降低阈值以获得更多结果
-                        matched_products.append({
-                            "product": p,
-                            "match_type": "fuzzy",
-                            "match_score": score
-                        })
-
-            logger.info(f"[推荐] 模糊匹配后共 {len(matched_products)} 条记录")
+        logger.info(f"[推荐] 匹配到 {len(matched_products)} 条产品记录")
 
         if not matched_products:
             logger.info("[推荐] 没有找到匹配的产品记录")
@@ -267,6 +387,7 @@ class SupplierService:
                     "total_quote_count": 0,
                     "prices": [],
                     "match_scores": [],
+                    "match_types": [],
                     "brands": set()
                 }
             stats = supplier_stats[sid]
@@ -275,12 +396,15 @@ class SupplierService:
                 "model": p.product_model,
                 "brand": p.brand,
                 "price": p.last_price,
-                "quote_count": p.quote_count
+                "quote_count": p.quote_count,
+                "match_type": item["match_type"],
+                "match_score": item["match_score"]
             })
             stats["total_quote_count"] += p.quote_count
             if p.last_price:
                 stats["prices"].append(p.last_price)
             stats["match_scores"].append(item["match_score"])
+            stats["match_types"].append(item["match_type"])
             if p.brand:
                 stats["brands"].add(p.brand)
 
@@ -296,7 +420,24 @@ class SupplierService:
                 continue
 
             avg_score = sum(stats["match_scores"]) / len(stats["match_scores"])
+            max_score = max(stats["match_scores"])
             avg_price = sum(stats["prices"]) / len(stats["prices"]) if stats["prices"] else 0
+
+            # 匹配类型加权：brand+model > model_exact > model_fuzzy > brand > name
+            type_bonus = 0.0
+            if "brand+model" in stats["match_types"]:
+                type_bonus = 0.3
+            elif "model_exact" in stats["match_types"]:
+                type_bonus = 0.2
+            elif "model_fuzzy" in stats["match_types"]:
+                type_bonus = 0.1
+
+            # 综合推荐分数 = 匹配分数(50%) + 类型加分(20%) + 报价次数(30%)
+            recommendation_score = (
+                max_score * 0.5 +
+                type_bonus +
+                min(stats["total_quote_count"] / 10, 1) * 0.3
+            )
 
             recommendations.append({
                 "supplier_id": sid,
@@ -313,7 +454,8 @@ class SupplierService:
                 "delivery_times": [],
                 "last_quote_date": supplier.last_quote_date or supplier.updated_at,
                 "avg_match_score": avg_score,
-                "recommendation_score": avg_score * 0.4 + min(stats["total_quote_count"] / 10, 1) * 0.6,
+                "best_match_type": stats["match_types"][0] if stats["match_types"] else "none",
+                "recommendation_score": recommendation_score,
                 "created_by": supplier.created_by
             })
 

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, BackgroundTasks
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -35,6 +35,29 @@ router = APIRouter()
 
 # Initialize database on startup
 init_db()
+
+# 用户通知存储（内存）
+_user_notifications: dict = {}
+
+
+def add_notification(user_id: str, message: str, type: str = "info"):
+    """添加用户通知"""
+    if user_id not in _user_notifications:
+        _user_notifications[user_id] = []
+    _user_notifications[user_id].append({"message": message, "type": type})
+
+
+def pop_notifications(user_id: str) -> list:
+    """获取并清除用户通知"""
+    notifications = _user_notifications.pop(user_id, [])
+    return notifications
+
+
+@router.get("/notifications")
+async def get_notifications(current_user: User = Depends(get_current_user)):
+    """获取当前用户的通知"""
+    notifications = pop_notifications(current_user.id)
+    return {"notifications": notifications}
 
 
 # Pydantic models for sheet save/load
@@ -616,7 +639,7 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
                 print(f"[DEBUG] 批量更新 - cleaned: {cleaned}")
                 update_action = UpdateAction(**cleaned)
                 print(f"[DEBUG] 批量更新 - update_action.price: {update_action.price}, type: {type(update_action.price)}")
-                current_sheet = process_update(current_sheet, update_action, db, user_id=current_user.id)
+                current_sheet = process_update(current_sheet, update_action)
                 updated_rows.append(update_action.target_row)
 
             if not updated_rows:
@@ -738,7 +761,7 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
                 allowed = set(getattr(UpdateAction, "__fields__", {}).keys())
             cleaned = {k: v for k, v in data_dict.items() if k in allowed}
             update_action = UpdateAction(**cleaned)
-            new_sheet = process_update(sheet_data, update_action, db, user_id=current_user.id)
+            new_sheet = process_update(sheet_data, update_action)
 
             # 检查缺失字段并生成提醒
             missing_fields = []
@@ -1171,3 +1194,226 @@ async def recommend_suppliers_endpoint(request: RecommendRequest, db: Session = 
     except Exception as e:
         print(f"[ERROR] Failed to recommend suppliers: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to recommend suppliers: {str(e)}")
+
+
+class ExtractSuppliersRequest(BaseModel):
+    sheet_data: list
+
+
+def _extract_phones_from_text(text: str) -> list:
+    """用正则从文本中提取电话号码"""
+    if not text:
+        return []
+    # 匹配手机号（11位）和座机（区号-号码）
+    patterns = [
+        r'1[3-9]\d{9}',  # 手机号
+        r'0\d{2,3}-?\d{7,8}',  # 座机
+    ]
+    phones = []
+    for pattern in patterns:
+        matches = re.findall(pattern, text)
+        phones.extend(matches)
+    return phones
+
+
+def _extract_suppliers_background(supplier_entries: list, user_id: str):
+    """后台任务：使用AI提取供应商信息并保存到数据库，同时保存品牌标签和产品关联"""
+    from ..core.llm import extract_suppliers_with_llm
+    from ..models.database import get_db_session
+
+    if not supplier_entries:
+        return
+
+    # 提取供应商文本给LLM
+    supplier_texts = [e["text"] for e in supplier_entries]
+    print(f"[后台任务] 开始AI提取供应商，共 {len(supplier_texts)} 条文本...")
+
+    try:
+        ai_results = extract_suppliers_with_llm(supplier_texts)
+        print(f"[后台任务] AI提取完成，得到 {len(ai_results)} 条结果")
+
+        if not ai_results:
+            return
+
+        # 建立原始文本到产品信息的映射
+        text_to_entries = {}
+        for entry in supplier_entries:
+            text = entry["text"]
+            if text not in text_to_entries:
+                text_to_entries[text] = []
+            text_to_entries[text].append(entry)
+
+        db = next(get_db_session())
+        try:
+            supplier_service = SupplierService(db)
+            seen_phones = set()
+            saved_count = 0
+
+            for info in ai_results:
+                phone = info.get("contact_phone")
+                company = info.get("company_name")
+                original_text = info.get("original_text")
+
+                if not phone and not company:
+                    continue
+
+                if phone and phone in seen_phones:
+                    continue
+                if phone:
+                    seen_phones.add(phone)
+
+                # 获取关联的产品信息
+                related_entries = text_to_entries.get(original_text, [])
+
+                # 收集所有品牌作为标签
+                brands = set()
+                for entry in related_entries:
+                    if entry.get("brand"):
+                        brands.add(entry["brand"])
+                tags = list(brands) if brands else None
+
+                try:
+                    saved_supplier = supplier_service.upsert_supplier(
+                        company_name=company or "未知公司",
+                        contact_phone=phone,
+                        owner="手动录入",
+                        contact_name=info.get("contact_name"),
+                        tags=tags,
+                        created_by=user_id
+                    )
+                    saved_count += 1
+
+                    # 保存产品关联
+                    for entry in related_entries:
+                        if entry.get("product_name") or entry.get("product_model"):
+                            supplier_service.upsert_supplier_product(
+                                supplier_id=saved_supplier.id,
+                                product_name=entry.get("product_name"),
+                                product_model=entry.get("product_model"),
+                                brand=entry.get("brand"),
+                                price=entry.get("price")
+                            )
+
+                except Exception as e:
+                    print(f"[后台任务] 保存供应商失败: {e}")
+                    continue
+
+            print(f"[后台任务] 供应商提取完成，共保存 {saved_count} 个")
+
+            if saved_count > 0:
+                add_notification(user_id, f"已成功新增 {saved_count} 个供应商", "success")
+        finally:
+            db.close()
+
+    except Exception as e:
+        print(f"[后台任务] 供应商提取失败: {e}")
+
+
+@router.post("/sheets/extract-suppliers")
+async def extract_suppliers_from_sheet(
+    request: ExtractSuppliersRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    从表格数据中提取供应商信息并保存到数据库
+    先用算法预检查是否有新供应商，有才触发LLM提取
+    """
+    sheet_data = request.sheet_data
+    if not sheet_data or len(sheet_data) < 2:
+        return {"status": "skipped", "new_count": 0}
+
+    schema = build_sheet_schema(sheet_data)
+    slots = schema.get("slots") or {}
+    cols = schema.get("item_columns") or {}
+
+    name_col = cols.get("name")
+    brand_col = cols.get("brand")
+    model_col = cols.get("model")
+
+    def _get_cell(row, idx):
+        if not isinstance(idx, int) or idx >= len(row):
+            return None
+        v = row[idx]
+        if v and str(v).strip() and str(v).strip().lower() != "none":
+            return str(v).strip()
+        return None
+
+    # 收集供应商信息及关联的产品信息
+    supplier_entries = []
+    for row in sheet_data[1:]:
+        if not isinstance(row, list):
+            continue
+
+        row_name = _get_cell(row, name_col)
+        row_brand = _get_cell(row, brand_col)
+        row_model = _get_cell(row, model_col)
+
+        for slot_num in sorted(slots.keys()):
+            slot_map = slots.get(slot_num) or {}
+            supplier_idx = slot_map.get("供应商")
+            brand_slot_idx = slot_map.get("品牌")
+            price_idx = slot_map.get("单价")
+
+            supplier_text = _get_cell(row, supplier_idx)
+            if not supplier_text:
+                continue
+
+            # 槽位品牌优先，否则用行品牌
+            slot_brand = _get_cell(row, brand_slot_idx) or row_brand
+
+            # 获取价格
+            price_val = None
+            if isinstance(price_idx, int) and price_idx < len(row):
+                try:
+                    price_val = float(row[price_idx])
+                except:
+                    pass
+
+            supplier_entries.append({
+                "text": supplier_text,
+                "brand": slot_brand,
+                "product_name": row_name,
+                "product_model": row_model,
+                "price": price_val
+            })
+
+    if not supplier_entries:
+        return {"status": "skipped", "new_count": 0}
+
+    # 预检查：用正则提取电话号码，检查是否有新的
+    all_phones = set()
+    for entry in supplier_entries:
+        phones = _extract_phones_from_text(entry["text"])
+        all_phones.update(phones)
+
+    if not all_phones:
+        return {"status": "skipped", "new_count": 0}
+
+    # 查询数据库中已存在的电话
+    supplier_service = SupplierService(db)
+    existing_phones = supplier_service.get_existing_phones(list(all_phones))
+    new_phones = all_phones - existing_phones
+
+    if not new_phones:
+        return {"status": "skipped", "new_count": 0}
+
+    # 只保留包含新电话的条目
+    entries_with_new_phones = []
+    for entry in supplier_entries:
+        phones = _extract_phones_from_text(entry["text"])
+        if any(p in new_phones for p in phones):
+            entries_with_new_phones.append(entry)
+
+    if not entries_with_new_phones:
+        return {"status": "skipped", "new_count": 0}
+
+    # 添加后台任务提取新供应商
+    background_tasks.add_task(
+        _extract_suppliers_background,
+        entries_with_new_phones,
+        current_user.id
+    )
+
+    return {"status": "processing", "new_count": len(new_phones)}

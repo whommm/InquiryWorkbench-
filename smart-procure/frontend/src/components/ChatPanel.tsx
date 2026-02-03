@@ -65,10 +65,10 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSend, onFileUpload, is
 
   return (
     <div className="flex flex-col h-full bg-white border-r border-gray-200 shadow-lg">
-      {/* 头部 - 参考 Mockup 设计 */}
-      <div className="p-3 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
-        <span className="font-semibold text-gray-700">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-emerald-500 inline-block mr-2">
+      {/* 头部 */}
+      <div className="p-3 border-b border-gray-100 bg-gray-50 flex items-center gap-3">
+        <span className="font-semibold text-gray-700 flex items-center">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-emerald-500 mr-2">
             <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
           </svg>
           AI 助手
@@ -76,13 +76,14 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSend, onFileUpload, is
         <button
           type="button"
           onClick={onClear}
-          className="text-gray-400 hover:text-gray-600 transition-colors"
-          title="清空上下文"
-          disabled={isThinking}
+          className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-orange-600 hover:bg-orange-50 rounded-md transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          disabled={isThinking || history.length === 0}
+          title="清空聊天记录"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="w-4 h-4">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5.5 5.5L18.5 18.5M8 4h8l1 2H7l1-2zM6 6h12v2H6V6zM7 8l1 12h8l1-12" />
           </svg>
+          <span>清空</span>
         </button>
       </div>
 

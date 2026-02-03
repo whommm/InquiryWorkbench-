@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { initSheet, sendChat, uploadFile, saveSheet } from '../utils/api';
+import { initSheet, sendChat, uploadFile, saveSheet, extractSuppliersFromSheet } from '../utils/api';
 import { useTabsStore } from '../stores/useTabsStore';
 
 export interface ChatMessage {
@@ -87,18 +87,8 @@ export const useProcureState = () => {
 
       updates.chatHistory = [...nextHistory, { role: 'assistant', content: reply }];
 
-      // 如果是WRITE操作，立即保存并标记为已保存，避免自动保存的竞态条件
-      if (response.action === "WRITE" && response.updated_sheet && activeTab) {
-        console.log('[Chat] 立即保存最新数据...');
-        await saveSheet({
-          id: activeTab.id,
-          name: activeTab.name,
-          sheet_data: response.updated_sheet,
-          chat_history: updates.chatHistory,
-        });
-        console.log('[Chat] ✓ 数据已保存');
-      }
-
+      // 更新标签页数据（保存到 IndexedDB，标记为 isDirty）
+      // 用户需要手动点击保存按钮才会同步到后端
       console.log('[Chat] 更新标签页数据...');
       await updateTabData(activeTabId, updates);
       console.log('[Chat] 标签页数据更新完成');
@@ -184,13 +174,48 @@ export const useProcureState = () => {
     });
   };
 
+  const handleManualSave = async (): Promise<{ success: boolean; newSupplierCount?: number }> => {
+    if (!activeTabId || !activeTab) return { success: false };
+
+    try {
+      // 1. 保存表格数据到后端
+      await saveSheet({
+        id: activeTab.id,
+        name: activeTab.name,
+        sheet_data: activeTab.sheetData,
+        chat_history: activeTab.chatHistory,
+      });
+
+      // 2. 提取并沉淀供应商数据（异步，不阻塞）
+      let newSupplierCount = 0;
+      try {
+        const result = await extractSuppliersFromSheet(activeTab.sheetData);
+        newSupplierCount = result.new_count || 0;
+        if (newSupplierCount > 0) {
+          console.log(`✓ 发现 ${newSupplierCount} 个新供应商，后台提取中...`);
+        }
+      } catch (extractError) {
+        console.warn('供应商提取失败:', extractError);
+      }
+
+      await updateTabData(activeTabId, { isDirty: false });
+      console.log(`✓ 手动保存成功: ${activeTab.name}`);
+      return { success: true, newSupplierCount };
+    } catch (error) {
+      console.error('❌ 手动保存失败:', error);
+      return { success: false };
+    }
+  };
+
   return {
     sheetData,
     chatHistory,
     isThinking,
+    isDirty: activeTab?.isDirty ?? false,
     handleSendMessage,
     handleFileUpload,
     handleSheetDataChange,
     clearChatHistory,
+    handleManualSave,
   };
 };

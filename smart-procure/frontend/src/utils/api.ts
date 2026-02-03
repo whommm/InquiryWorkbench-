@@ -121,3 +121,15 @@ export const recommendSuppliers = async (data: {
   const response = await api.post('/suppliers/recommend', data);
   return response.data;
 };
+
+export const extractSuppliersFromSheet = async (sheetData: unknown[][]) => {
+  const response = await api.post('/sheets/extract-suppliers', {
+    sheet_data: sheetData,
+  });
+  return response.data;
+};
+
+export const getNotifications = async () => {
+  const response = await api.get('/notifications');
+  return response.data;
+};

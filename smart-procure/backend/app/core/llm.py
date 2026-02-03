@@ -113,3 +113,66 @@ def mock_llm_response(message: str):
         "action": "ASK",
         "content": "（Mock模式）未检测到API Key。请提供报价，例如：'2行 100元' 或 '找张三'。或在backend/.env中配置API Key。"
     })
+
+
+def extract_suppliers_with_llm(supplier_texts: List[str]) -> List[Dict[str, Any]]:
+    """
+    使用LLM从供应商文本列表中提取结构化信息
+
+    Args:
+        supplier_texts: 供应商列的文本列表
+
+    Returns:
+        提取的供应商信息列表
+    """
+    if not supplier_texts:
+        return []
+
+    # 过滤空值和重复值
+    unique_texts = list(set([t.strip() for t in supplier_texts if t and t.strip()]))
+    if not unique_texts:
+        return []
+
+    # 构建prompt
+    system_prompt = """你是一个供应商信息提取助手。从用户提供的供应商文本中提取结构化信息。
+
+每条供应商文本可能包含：公司名称、联系人姓名、电话号码（手机或座机）。
+格式可能不规范，需要你智能识别。
+
+输出JSON数组，每个元素包含：
+- company_name: 公司名称（如果没有明确公司名，填"未知公司"）
+- contact_name: 联系人姓名（2-4个汉字，如果没有填null）
+- contact_phone: 电话号码（手机11位或座机，如果没有填null）
+- original_text: 原始文本
+
+只输出JSON数组，不要其他内容。如果某条文本无法提取有效信息，跳过它。"""
+
+    user_message = "请从以下供应商文本中提取信息：\n\n" + "\n".join([f"{i+1}. {t}" for i, t in enumerate(unique_texts[:50])])  # 限制50条
+
+    # 如果没有API Key，返回空
+    if not settings.API_KEY or "placeholder" in settings.API_KEY:
+        print("[供应商提取] 无API Key，跳过AI提取")
+        return []
+
+    try:
+        response = get_client().chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message}
+            ],
+            stream=False
+        )
+        content = response.choices[0].message.content
+
+        # 提取JSON
+        extracted = _extract_first_json(content)
+        if extracted:
+            result = json.loads(extracted)
+            if isinstance(result, list):
+                return result
+
+        return []
+    except Exception as e:
+        print(f"[供应商提取] LLM调用失败: {e}")
+        return []

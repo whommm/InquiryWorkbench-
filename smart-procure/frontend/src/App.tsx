@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Layout from './components/Layout';
 import ChatPanel from './components/ChatPanel';
 import UniverSheet from './components/UniverSheet';
@@ -6,21 +6,58 @@ import TabBar from './components/TabBar';
 import HistoryPanel from './components/HistoryPanel';
 import SupplierPanel from './components/SupplierPanel';
 import { RecommendPanel } from './components/RecommendPanel';
+import { Toast } from './components/Toast';
 import { useProcureState } from './hooks/useProcureState';
 import { useTabsStore } from './stores/useTabsStore';
 import { useAuthStore } from './stores/useAuthStore';
 import { useAutoSave } from './hooks/useAutoSave';
+import { getNotifications } from './utils/api';
 import AuthPage from './pages/AuthPage';
 
 function App() {
   const { initializeTabs, isLoading, activeTabId, clearTabs } = useTabsStore();
-  const { sheetData, chatHistory, isThinking, handleSendMessage, handleFileUpload, handleSheetDataChange, clearChatHistory } = useProcureState();
+  const { sheetData, chatHistory, isThinking, isDirty, handleSendMessage, handleFileUpload, handleSheetDataChange, clearChatHistory, handleManualSave } = useProcureState();
   const { isAuthenticated, isLoading: authLoading, loadFromStorage, logout, user } = useAuthStore();
   const [showHistory, setShowHistory] = useState(false);
   const [showSuppliers, setShowSuppliers] = useState(false);
   const [showRecommend, setShowRecommend] = useState(false);
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
   const [showChat, setShowChat] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
+
+  const onSave = async () => {
+    setIsSaving(true);
+    try {
+      const result = await handleManualSave();
+      if (!result.success) {
+        setToast({ message: '保存失败', type: 'error' });
+      }
+      // 保存成功不显示Toast，等后台任务完成后通过轮询显示
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // 轮询通知
+  const checkNotifications = useCallback(async () => {
+    if (!isAuthenticated) return;
+    try {
+      const result = await getNotifications();
+      if (result.notifications && result.notifications.length > 0) {
+        const notification = result.notifications[0];
+        setToast({ message: notification.message, type: notification.type });
+      }
+    } catch (e) {
+      // 忽略错误
+    }
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const interval = setInterval(checkNotifications, 3000);
+    return () => clearInterval(interval);
+  }, [isAuthenticated, checkNotifications]);
 
   // Initialize tabs on mount
   useEffect(() => {
@@ -93,6 +130,18 @@ function App() {
           {showRecommend ? '隐藏推荐' : '显示推荐'}
         </button>
         <div className="flex-1" />
+        <button
+          onClick={onSave}
+          disabled={isSaving || !isDirty}
+          className={`px-3 py-1.5 text-sm rounded transition-colors whitespace-nowrap ${
+            isDirty
+              ? 'bg-orange-500 text-white hover:bg-orange-600'
+              : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+          } ${isSaving ? 'opacity-70' : ''}`}
+          title={isDirty ? '有未保存的修改，点击保存' : '已保存'}
+        >
+          {isSaving ? '保存中...' : '保存'}
+        </button>
         <span className="text-sm text-gray-600">
           {user?.display_name || user?.username}
         </span>
@@ -139,6 +188,13 @@ function App() {
       </div>
       {showHistory && <HistoryPanel onClose={() => setShowHistory(false)} />}
       {showSuppliers && <SupplierPanel onClose={() => setShowSuppliers(false)} />}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
     </div>
   );
 }

@@ -54,6 +54,7 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
   const workbookIdRef = useRef<string | null>(null);
   const readyPollTimerRef = useRef<number | null>(null);
   const isProgrammaticWriteRef = useRef(false);
+  const isUserEditRef = useRef(false); // 标记数据变化是否来自用户编辑
   const changeListenerDisposableRef = useRef<{ dispose: () => void } | null>(null);
 
   const writeDataToActiveSheet = useCallback((univerAPI: ReturnType<typeof FUniver.newAPI>, next: unknown[][]) => {
@@ -122,9 +123,11 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
         void 0;
       }
 
+      // 延迟重置标志，确保 Univer 内部的异步操作完成
+      // 使用较长的延迟时间避免后续的 mutation 被误处理
       setTimeout(() => {
         isProgrammaticWriteRef.current = false;
-      }, 0);
+      }, 200);
     });
   }, []);
 
@@ -292,97 +295,65 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
             if (!command || typeof command !== 'object') return;
             const cmd = command as { id?: unknown; params?: unknown };
 
-            // 监听设置值和清除命令
-            const isSetValues = cmd.id === 'sheet.command.set-range-values';
-            const isClear = cmd.id === 'sheet.command.clear-selection-all' ||
-                           cmd.id === 'sheet.command.clear-selection-content' ||
-                           cmd.id === 'sheet.command.delete-range-move-left' ||
-                           cmd.id === 'sheet.command.delete-range-move-up';
+            // 只监听 mutation，不监听 command
+            // 用户编辑、清除、撤销/重做等操作都会触发 mutation
+            // 不需要单独处理 command，避免重复触发 onDataChange
+            const isMutationSetValues = cmd.id === 'sheet.mutation.set-range-values';
 
-            if (!isSetValues && !isClear) return;
+            if (!isMutationSetValues) return;
 
             console.log('[UniverSheet] Data change command:', cmd.id, 'params:', JSON.stringify(cmd.params));
 
             const params =
               cmd.params && typeof cmd.params === 'object'
-                ? (cmd.params as { range?: unknown; value?: unknown })
+                ? (cmd.params as { range?: unknown; value?: unknown; cellValue?: unknown })
                 : undefined;
 
-            let range = params?.range as
-              | {
-                  unitId?: unknown;
-                  startRow?: unknown;
-                  endRow?: unknown;
-                  startColumn?: unknown;
-                  endColumn?: unknown;
-                }
-              | undefined;
+            // 处理 mutation 的 cellValue 格式 (用于撤销/重做)
+            // 格式: {"cellValue":{"5":{"2":{"v":"1",...}}}} 表示行5列2的值
+            if (isMutationSetValues && params?.cellValue) {
+              const cellValue = params.cellValue as Record<string, Record<string, { v?: unknown; f?: string }>>;
+              const rowKeys = Object.keys(cellValue).map(Number).sort((a, b) => a - b);
+              console.log('[UniverSheet] cellValue mutation - rows:', rowKeys.join(','), 'total:', rowKeys.length);
 
-            // 对于清除命令，params可能是undefined，需要从当前选区获取range
-            if (!range && isClear) {
-              try {
-                const activeSheet = univerAPI.getActiveWorkbook()?.getActiveSheet();
-                const selection = activeSheet?.getSelection();
-                const activeRange = selection?.getActiveRange();
-                if (activeRange) {
-                  const rangeData = (activeRange as any)._range;
-                  if (rangeData) {
-                    range = {
-                      startRow: rangeData.startRow,
-                      endRow: rangeData.endRow,
-                      startColumn: rangeData.startColumn,
-                      endColumn: rangeData.endColumn,
-                    };
-                    console.log('[UniverSheet] Got range from selection:', range);
-                  }
-                }
-              } catch (e) {
-                console.warn('[UniverSheet] Failed to get range from selection:', e);
+              const next = [...latestDataRef.current.map(row => [...row])];
+
+              // 确保数组足够大
+              const maxRow = Math.max(...Object.keys(cellValue).map(Number), next.length - 1);
+              while (next.length <= maxRow) {
+                next.push([]);
               }
+
+              for (const [rowStr, cols] of Object.entries(cellValue)) {
+                const rowIdx = parseInt(rowStr, 10);
+                if (isNaN(rowIdx) || rowIdx < 0) continue;
+
+                const maxCol = Math.max(...Object.keys(cols).map(Number), (next[rowIdx]?.length || 0) - 1);
+                while ((next[rowIdx]?.length || 0) <= maxCol) {
+                  next[rowIdx] = next[rowIdx] || [];
+                  next[rowIdx].push('');
+                }
+
+                for (const [colStr, cell] of Object.entries(cols)) {
+                  const colIdx = parseInt(colStr, 10);
+                  if (isNaN(colIdx) || colIdx < 0) continue;
+
+                  // 提取值：优先公式，其次值
+                  let value: unknown = '';
+                  if (cell?.f) {
+                    value = cell.f;
+                  } else if (cell?.v !== undefined && cell?.v !== null) {
+                    value = cell.v;
+                  }
+                  next[rowIdx][colIdx] = value;
+                }
+              }
+
+              latestDataRef.current = next;
+              isUserEditRef.current = true; // 标记这是用户编辑
+              console.log('[UniverSheet] Applied cellValue mutation, calling onDataChange');
+              onDataChangeRef.current?.(next);
             }
-
-            if (!range) {
-              console.log('[UniverSheet] No range found');
-              return;
-            }
-            const activeUnitId = univerAPI.getActiveWorkbook?.()?.getId?.() as string | undefined;
-            const rangeUnitId = typeof range.unitId === 'string' ? range.unitId : undefined;
-            if (rangeUnitId && activeUnitId && rangeUnitId !== activeUnitId) return;
-
-            const normalizedRange = {
-              startRow: typeof range.startRow === 'number' ? range.startRow : 0,
-              endRow:
-                typeof range.endRow === 'number'
-                  ? range.endRow
-                  : typeof range.startRow === 'number'
-                    ? range.startRow
-                    : 0,
-              startColumn: typeof range.startColumn === 'number' ? range.startColumn : 0,
-              endColumn:
-                typeof range.endColumn === 'number'
-                  ? range.endColumn
-                  : typeof range.startColumn === 'number'
-                    ? range.startColumn
-                    : 0,
-            };
-
-            // 清除命令或value为null/undefined时，视为删除操作
-            let valueToApply: unknown = '';
-            if (isClear) {
-              valueToApply = '';
-            } else if (params?.value === null || params?.value === undefined) {
-              // Delete key pressed - value is null/undefined, treat as clear
-              valueToApply = '';
-              console.log('[UniverSheet] Delete detected (null value), clearing range');
-            } else {
-              valueToApply = params?.value;
-            }
-
-            console.log('[UniverSheet] Applying value:', valueToApply, 'to range:', normalizedRange);
-            const next = applyRangeToData(latestDataRef.current ?? [], normalizedRange, valueToApply);
-            latestDataRef.current = next;
-            console.log('[UniverSheet] Calling onDataChange');
-            onDataChangeRef.current?.(next);
           });
           changeListenerDisposableRef.current = disposable;
         }
@@ -537,6 +508,14 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
   useEffect(() => {
     if (!data) return;
     latestDataRef.current = data;
+
+    // 如果数据变化来自用户编辑，不要写回 Univer（避免污染撤销栈）
+    if (isUserEditRef.current) {
+      console.log('[UniverSheet] Skipping write-back for user edit');
+      isUserEditRef.current = false;
+      return;
+    }
+
     const univer = univerRef.current;
     const univerAPI = univerAPIRef.current;
     if (!univer || !univerAPI) return;
@@ -549,7 +528,7 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
         void Promise.resolve(writeDataToActiveSheet(univerAPI, data)).catch((e: unknown) => {
           console.error("Failed to update workbook:", e);
         });
-        
+
     } catch (e) {
         console.error("Failed to update workbook:", e);
     }
