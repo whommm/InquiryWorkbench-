@@ -1,5 +1,8 @@
 import axios from 'axios';
 
+// 401 事件，用于通知应用层处理登出
+export const AUTH_EXPIRED_EVENT = 'auth:expired';
+
 const api = axios.create({
   baseURL: '/api', // Relative path for proxy
 });
@@ -21,9 +24,11 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
+      // 清除本地存储的认证信息
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      window.location.reload();
+      // 触发自定义事件，让应用层决定如何处理（如显示提示后再跳转）
+      window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT));
     }
     return Promise.reject(error);
   }

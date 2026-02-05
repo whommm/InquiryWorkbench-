@@ -1,4 +1,5 @@
 import logging
+import os
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -14,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="SmartProcure Backend")
 
+# CORS 配置：从环境变量读取允许的域名，默认仅允许本地开发
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:6789,http://127.0.0.1:6789").split(",")
+
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -26,10 +30,10 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 app.include_router(routes.router, prefix="/api")

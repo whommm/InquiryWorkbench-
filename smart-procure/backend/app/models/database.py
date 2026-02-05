@@ -9,11 +9,10 @@ from datetime import datetime
 import os
 import uuid
 
-# Database configuration - 从环境变量读取
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://smartprocure:smartprocure123@localhost:5432/smartprocure"
-)
+# Database configuration - 强制要求环境变量
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL 环境变量未设置，请在 .env 文件中配置")
 
 # Create engine and session
 engine = create_engine(DATABASE_URL)

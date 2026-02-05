@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import Layout from './components/Layout';
 import ChatPanel from './components/ChatPanel';
 import UniverSheet from './components/UniverSheet';
@@ -11,7 +11,7 @@ import { useProcureState } from './hooks/useProcureState';
 import { useTabsStore } from './stores/useTabsStore';
 import { useAuthStore } from './stores/useAuthStore';
 import { useAutoSave } from './hooks/useAutoSave';
-import { getNotifications } from './utils/api';
+import { getNotifications, AUTH_EXPIRED_EVENT } from './utils/api';
 import AuthPage from './pages/AuthPage';
 
 function App() {
@@ -39,9 +39,15 @@ function App() {
     }
   };
 
+  // 使用 ref 存储认证状态，避免 useCallback 依赖变化
+  const isAuthenticatedRef = useRef(isAuthenticated);
+  useEffect(() => {
+    isAuthenticatedRef.current = isAuthenticated;
+  }, [isAuthenticated]);
+
   // 轮询通知
   const checkNotifications = useCallback(async () => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticatedRef.current) return;
     try {
       const result = await getNotifications();
       if (result.notifications && result.notifications.length > 0) {
@@ -51,7 +57,7 @@ function App() {
     } catch (e) {
       // 忽略错误
     }
-  }, [isAuthenticated]);
+  }, []);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -63,6 +69,19 @@ function App() {
   useEffect(() => {
     loadFromStorage();
   }, []);
+
+  // 监听认证过期事件
+  useEffect(() => {
+    const handleAuthExpired = () => {
+      setToast({ message: '登录已过期，请重新登录', type: 'error' });
+      setTimeout(() => {
+        logout();
+        clearTabs();
+      }, 1500);
+    };
+    window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
+  }, [logout, clearTabs]);
 
   // Initialize tabs after authentication
   useEffect(() => {

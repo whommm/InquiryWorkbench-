@@ -15,8 +15,10 @@ from ..models.database import get_db, User
 # 密码加密上下文
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# JWT 配置
-JWT_SECRET = os.getenv("JWT_SECRET", "your-super-secret-jwt-key")
+# JWT 配置 - 强制要求环境变量
+JWT_SECRET = os.environ.get("JWT_SECRET")
+if not JWT_SECRET:
+    raise RuntimeError("JWT_SECRET 环境变量未设置，请在 .env 文件中配置")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))
 

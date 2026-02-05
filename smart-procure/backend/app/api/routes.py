@@ -392,10 +392,7 @@ def build_history_messages(chat_history, max_messages: int = 12, max_chars_per_m
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    print(f"[DEBUG] ========== 开始处理chat请求 ==========")
-    print(f"[DEBUG] 用户消息: {request.message}")
     sheet_data = request.current_sheet_data or []
-    print(f"[DEBUG] 表格数据行数: {len(sheet_data)}")
     schema = build_sheet_schema(sheet_data)
     headers = schema.get("headers") or []
     headers_preview = [str(h) for h in headers[:40]]
@@ -573,13 +570,6 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
         max_tool_steps=3,
     )
 
-    print(f"[DEBUG] Agent返回结果:")
-    print(f"[DEBUG] - action: {agent_out.get('action')}")
-    print(f"[DEBUG] - updates存在: {agent_out.get('updates') is not None}")
-    if agent_out.get('updates'):
-        print(f"[DEBUG] - updates数量: {len(agent_out.get('updates'))}")
-        print(f"[DEBUG] - updates内容: {agent_out.get('updates')}")
-
     if agent_out.get("action") == "ASK":
         return ChatResponse(action="ASK", content=agent_out.get("content") or "请提供更多信息")
 
@@ -635,10 +625,7 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
                 else:
                     allowed = set(getattr(UpdateAction, "__fields__", {}).keys())
                 cleaned = {k: v for k, v in data_dict.items() if k in allowed}
-                print(f"[DEBUG] 批量更新 - data_dict: {data_dict}")
-                print(f"[DEBUG] 批量更新 - cleaned: {cleaned}")
                 update_action = UpdateAction(**cleaned)
-                print(f"[DEBUG] 批量更新 - update_action.price: {update_action.price}, type: {type(update_action.price)}")
                 current_sheet = process_update(current_sheet, update_action)
                 updated_rows.append(update_action.target_row)
 
@@ -659,29 +646,12 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
                 reminder = f"\n\n💡 提示：缺少以下信息，如需补充请继续输入：{', '.join(missing_fields)}"
                 success_msg += reminder
 
-            print(f"[DEBUG] 准备返回响应:")
-            print(f"[DEBUG] - action: WRITE")
-            print(f"[DEBUG] - content: {success_msg}")
-            print(f"[DEBUG] - updated_rows: {updated_rows}")
-            print(f"[DEBUG] - current_sheet行数: {len(current_sheet)}")
-            print(f"[DEBUG] - current_sheet第一行: {current_sheet[0] if current_sheet else 'None'}")
-            print(f"[DEBUG] - updates数量: {len(updates)}")
-
-            # 打印更新的行的详细信息
-            for row_num in updated_rows[:3]:  # 只打印前3行
-                if 0 < row_num <= len(current_sheet):
-                    row_data = current_sheet[row_num - 1]
-                    print(f"[DEBUG] - 行{row_num}数据（前10列）: {row_data[:10] if isinstance(row_data, list) else row_data}")
-
             response = ChatResponse(
                 action="WRITE",
                 content=success_msg,
                 data=updates,
                 updated_sheet=current_sheet,
             )
-            print(f"[DEBUG] ChatResponse对象创建成功")
-            print(f"[DEBUG] response.updated_sheet行数: {len(response.updated_sheet) if response.updated_sheet else 'None'}")
-            print(f"[DEBUG] response.content长度: {len(response.content) if response.content else 0}")
             return response
 
         data_dict = agent_out.get("data") or {}
@@ -787,13 +757,33 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
 
     return ChatResponse(action="ASK", content="未知指令")
 
+# 文件上传大小限制 (10MB)
+MAX_UPLOAD_SIZE = 10 * 1024 * 1024
+ALLOWED_MIME_TYPES = [
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  # xlsx
+    "application/vnd.ms-excel",  # xls
+]
+
 @router.post("/upload")
-async def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_file(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # 验证文件扩展名
     if not file.filename.endswith(('.xlsx', '.xls')):
-        raise HTTPException(status_code=400, detail="Invalid file format. Please upload an Excel file.")
+        raise HTTPException(status_code=400, detail="仅支持 Excel 文件格式 (.xlsx, .xls)")
+
+    # 验证 MIME 类型
+    if file.content_type and file.content_type not in ALLOWED_MIME_TYPES:
+        raise HTTPException(status_code=400, detail="文件类型不正确，请上传 Excel 文件")
 
     try:
+        # 读取文件并检查大小
         contents = await file.read()
+        if len(contents) > MAX_UPLOAD_SIZE:
+            raise HTTPException(status_code=400, detail="文件大小超过限制 (最大 10MB)")
+
         df = pd.read_excel(io.BytesIO(contents))
 
         # Replace NaN with empty string
@@ -1045,7 +1035,7 @@ async def export_sheet(
 
 # Supplier API endpoints
 @router.get("/suppliers/search")
-async def search_suppliers(q: str, limit: int = 10, db: Session = Depends(get_db)):
+async def search_suppliers(q: str, limit: int = 10, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Search suppliers by name, phone, or contact"""
     try:
         supplier_service = SupplierService(db)
@@ -1071,7 +1061,7 @@ async def search_suppliers(q: str, limit: int = 10, db: Session = Depends(get_db
 
 
 @router.get("/suppliers/list")
-async def list_suppliers_endpoint(limit: int = 50, offset: int = 0, db: Session = Depends(get_db)):
+async def list_suppliers_endpoint(limit: int = 50, offset: int = 0, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get list of suppliers"""
     try:
         supplier_service = SupplierService(db)
@@ -1106,7 +1096,7 @@ async def list_suppliers_endpoint(limit: int = 50, offset: int = 0, db: Session 
 
 
 @router.delete("/suppliers/{supplier_id}")
-async def delete_supplier_endpoint(supplier_id: int, db: Session = Depends(get_db)):
+async def delete_supplier_endpoint(supplier_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Delete a supplier"""
     try:
         supplier_service = SupplierService(db)
@@ -1122,7 +1112,7 @@ async def delete_supplier_endpoint(supplier_id: int, db: Session = Depends(get_d
 
 
 @router.post("/suppliers/recommend")
-async def recommend_suppliers_endpoint(request: RecommendRequest, db: Session = Depends(get_db)):
+async def recommend_suppliers_endpoint(request: RecommendRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Recommend top suppliers for a specific product"""
     try:
         supplier_service = SupplierService(db)

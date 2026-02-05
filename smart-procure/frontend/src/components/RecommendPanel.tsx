@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { recommendSuppliers } from '../utils/api';
 
 interface RecommendPanelProps {
@@ -45,33 +45,40 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
     brand: string;
   } | null>(null);
 
+  // 使用 ref 存储 sheetData，避免数组引用变化导致的重复渲染
+  const sheetDataRef = useRef(sheetData);
   useEffect(() => {
-    console.log('[RecommendPanel] useEffect triggered', { selectedRow, sheetDataLength: sheetData?.length });
-    if (selectedRow !== null && sheetData && sheetData.length > selectedRow) {
-      console.log('[RecommendPanel] Calling fetchRecommendations for row:', selectedRow);
+    sheetDataRef.current = sheetData;
+  }, [sheetData]);
+
+  // 用于处理竞态条件的请求 ID
+  const requestIdRef = useRef(0);
+
+  useEffect(() => {
+    if (selectedRow !== null && sheetDataRef.current && sheetDataRef.current.length > selectedRow) {
       fetchRecommendations(selectedRow);
     } else {
-      console.log('[RecommendPanel] Clearing recommendations', { selectedRow, sheetDataLength: sheetData?.length });
       setRecommendations([]);
       setProductInfo(null);
     }
-  }, [selectedRow, sheetData]);
+  }, [selectedRow]);  // 只依赖 selectedRow
 
   const fetchRecommendations = async (rowIndex: number) => {
-    console.log('[RecommendPanel] fetchRecommendations called with rowIndex:', rowIndex);
+    // 生成新的请求 ID，用于处理竞态条件
+    const currentRequestId = ++requestIdRef.current;
+
     try {
       setLoading(true);
       setError(null);
 
-      const row = sheetData[rowIndex];
-      console.log('[RecommendPanel] Row data:', row);
+      const row = sheetDataRef.current[rowIndex];
 
       if (!row || row.length < 3) {
         setError('无法获取产品信息');
         return;
       }
 
-      const headers = sheetData[0] || [];
+      const headers = sheetDataRef.current[0] || [];
 
       // 精准匹配"品牌"列
       const brandColIndex = headers.findIndex((h: any) => String(h) === '品牌');
@@ -110,18 +117,28 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
         limit: 5
       });
 
-      console.log('[RecommendPanel] API response:', response);
+      // 检查是否是最新的请求，如果不是则忽略结果
+      if (currentRequestId !== requestIdRef.current) {
+        return;
+      }
+
       setRecommendations(response.recommendations || []);
 
       if (response.recommendations.length === 0) {
         setError('暂无推荐供应商');
       }
     } catch (err: any) {
-      console.error('[RecommendPanel] Failed to fetch recommendations:', err);
+      // 检查是否是最新的请求
+      if (currentRequestId !== requestIdRef.current) {
+        return;
+      }
       setError(err.message || '获取推荐失败');
       setRecommendations([]);
     } finally {
-      setLoading(false);
+      // 只有最新请求才更新 loading 状态
+      if (currentRequestId === requestIdRef.current) {
+        setLoading(false);
+      }
     }
   };
 

@@ -56,6 +56,7 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
   const isProgrammaticWriteRef = useRef(false);
   const isUserEditRef = useRef(false); // 标记数据变化是否来自用户编辑
   const changeListenerDisposableRef = useRef<{ dispose: () => void } | null>(null);
+  const selectionListenerDisposableRef = useRef<{ dispose: () => void } | null>(null);
 
   const writeDataToActiveSheet = useCallback((univerAPI: ReturnType<typeof FUniver.newAPI>, next: unknown[][]) => {
     const rowCount = Math.max(next.length, 20);
@@ -360,8 +361,7 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
 
         // Add row click listener
         if (typeof univerAPI.onCommandExecuted === 'function') {
-          console.log('[UniverSheet] Registering onCommandExecuted listener');
-          univerAPI.onCommandExecuted((command: unknown) => {
+          const selectionDisposable = univerAPI.onCommandExecuted((command: unknown) => {
             if (!command || typeof command !== 'object') return;
             const cmd = command as { id?: unknown; params?: unknown };
 
@@ -409,8 +409,7 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
               }
             }
           });
-        } else {
-          console.warn('[UniverSheet] onCommandExecuted is not available');
+          selectionListenerDisposableRef.current = selectionDisposable;
         }
 
         if (
@@ -468,6 +467,15 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
             console.warn("Univer change listener dispose error:", e);
           }
           changeListenerDisposableRef.current = null;
+        }
+
+        if (selectionListenerDisposableRef.current) {
+          try {
+            selectionListenerDisposableRef.current.dispose();
+          } catch (e) {
+            console.warn("Univer selection listener dispose error:", e);
+          }
+          selectionListenerDisposableRef.current = null;
         }
 
         if (lifecycleDisposableRef.current) {
