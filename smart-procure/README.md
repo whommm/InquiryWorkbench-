@@ -40,6 +40,7 @@ smart-procure/
 │   ├── app/
 │   │   ├── api/            # API 路由
 │   │   ├── auth/           # 认证模块
+│   │   ├── core/           # 核心配置 (config, llm)
 │   │   ├── models/         # 数据模型
 │   │   ├── services/       # 业务逻辑
 │   │   └── main.py         # 应用入口
@@ -95,8 +96,26 @@ smart-procure/
 | company_name | VARCHAR | 公司名称，唯一 |
 | contact_phone | VARCHAR | 联系电话 |
 | contact_name | VARCHAR | 联系人 |
+| owner | VARCHAR | 负责人 |
 | created_by | VARCHAR(36) | 创建者用户ID |
+| tags | JSON | 标签列表 |
 | quote_count | INTEGER | 报价次数 |
+| last_quote_date | DATETIME | 最后报价时间 |
+| created_at | DATETIME | 创建时间 |
+| updated_at | DATETIME | 更新时间 |
+
+### supplier_products (供应商产品关联表)
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INTEGER | 主键，自增 |
+| supplier_id | INTEGER | 供应商ID，外键 |
+| product_name | VARCHAR | 产品名称 |
+| product_model | VARCHAR | 产品型号 |
+| brand | VARCHAR | 品牌 |
+| last_price | FLOAT | 最近报价 |
+| quote_count | INTEGER | 报价次数 |
+| created_at | DATETIME | 创建时间 |
+| updated_at | DATETIME | 更新时间 |
 
 ## 云服务器部署指南
 
