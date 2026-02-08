@@ -14,7 +14,7 @@ interface TabsState {
   createTab: (name?: string, initialData?: Partial<InquiryTab>) => Promise<string>;
   switchTab: (tabId: string) => void;
   closeTab: (tabId: string) => Promise<boolean>;
-  updateTabData: (tabId: string, updates: Partial<InquiryTab>) => Promise<void>;
+  updateTab: (tabId: string, updates: Partial<InquiryTab>) => Promise<void>;
   getActiveTab: () => InquiryTab | null;
   clearTabs: () => void;
 }
@@ -81,21 +81,35 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   /**
    * Create a new tab
    * @param name - Optional tab name
-   * @param initialData - Optional initial data for the tab (sheetData, chatHistory, etc.)
+   * @param initialData - Optional initial data for the tab (sheetData, chatHistory, id, etc.)
    */
   createTab: async (name?: string, initialData?: Partial<InquiryTab>) => {
-    const { userId } = get();
+    const { userId, tabs } = get();
     if (!userId) throw new Error('User not initialized');
 
+    // 生成或使用提供的id
+    const tabId = initialData?.id || uuidv4();
+
+    // 如果提供了id，检查是否已存在相同id的tab
+    if (initialData?.id) {
+      const existingTab = tabs.find(t => t.id === initialData.id);
+      if (existingTab) {
+        // 如果已存在，直接切换到该tab
+        set({ activeTabId: existingTab.id });
+        return existingTab.id;
+      }
+    }
+
+    // 先spread initialData，然后用明确的值覆盖，确保关键字段不会是undefined
     const newTab: InquiryTab = {
-      id: uuidv4(),
-      name: name || `询价单-${formatDate(new Date())}`,
-      sheetData: [],
-      chatHistory: [],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      isDirty: false,
       ...initialData,
+      id: tabId,
+      name: name || initialData?.name || `询价单-${formatDate(new Date())}`,
+      sheetData: initialData?.sheetData || [],
+      chatHistory: initialData?.chatHistory || [],
+      createdAt: initialData?.createdAt || Date.now(),
+      updatedAt: Date.now(),
+      isDirty: initialData?.isDirty ?? false,
     };
 
     try {
@@ -172,28 +186,23 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   /**
    * Update tab data
    */
-  updateTabData: async (tabId: string, updates: Partial<InquiryTab>) => {
-    const { tabs, userId } = get();
-    if (!userId) return;
+  updateTab: async (tabId: string, updates: Partial<InquiryTab>) => {
+    const { userId, tabs } = get();
+    if (!userId) throw new Error('User not initialized');
 
-    const tab = tabs.find(t => t.id === tabId);
-    if (!tab) return;
+    const updatedTabs = tabs.map(tab => {
+      if (tab.id === tabId) {
+        return { ...tab, ...updates, updatedAt: Date.now() };
+      }
+      return tab;
+    });
 
-    const updatedTab: InquiryTab = {
-      ...tab,
-      ...updates,
-      updatedAt: Date.now(),
-      isDirty: updates.isDirty !== undefined ? updates.isDirty : true,
-    };
+    set({ tabs: updatedTabs });
 
-    try {
+    // Persist to IndexedDB
+    const updatedTab = updatedTabs.find(t => t.id === tabId);
+    if (updatedTab) {
       await saveTab(userId, updatedTab);
-      set(state => ({
-        tabs: state.tabs.map(t => t.id === tabId ? updatedTab : t),
-      }));
-    } catch (error) {
-      console.error('Failed to update tab:', error);
-      throw error;
     }
   },
 

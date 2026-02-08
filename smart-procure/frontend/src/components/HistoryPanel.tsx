@@ -53,8 +53,9 @@ const HistoryPanel = ({
     try {
       const sheet = await getSheet(sheetId);
 
-      // Create new tab with loaded data directly (avoid race condition)
+      // Create new tab with loaded data, preserving the original ID
       await createTab(sheet.name, {
+        id: sheet.id,  // 保留原始ID，这样保存时会更新而不是创建新记录
         sheetData: sheet.sheet_data,
         chatHistory: sheet.chat_history,
         isDirty: false,
