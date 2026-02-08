@@ -13,6 +13,7 @@ from ..services.excel_core import process_update
 from ..services.excel_export import export_sheet_to_excel
 from ..services.supplier_mock import MOCK_SUPPLIERS
 from ..services.web_search import search_suppliers_online, format_search_results
+from ..services.browser_service import browse_page_sync, search_baidu_sync
 from ..core.llm import call_llm
 from ..services.agent_runtime import ToolRegistry, run_two_stage_agent
 from ..services.sheet_schema import (
@@ -534,6 +535,45 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
                 "results": []
             }
 
+    def _web_browse(args: dict) -> dict:
+        """使用浏览器访问网页或搜索"""
+        url = args.get("url")
+        action = args.get("action", "browse")
+        query = args.get("query")
+
+        try:
+            if action == "search" and query:
+                result = search_baidu_sync(query, max_results=5)
+                if result["success"]:
+                    return {
+                        "success": True,
+                        "action": "search",
+                        "query": query,
+                        "results": result["results"],
+                        "message": f"搜索到 {result['count']} 条结果"
+                    }
+                else:
+                    return {"success": False, "error": result["error"]}
+
+            elif url:
+                result = browse_page_sync(url, extract_text=True, extract_links=False)
+                if result["success"]:
+                    return {
+                        "success": True,
+                        "action": "browse",
+                        "title": result["title"],
+                        "content": result["text"][:5000],
+                        "message": f"成功访问页面: {result['title']}"
+                    }
+                else:
+                    return {"success": False, "error": result["error"]}
+
+            else:
+                return {"success": False, "error": "请提供 url 或 query 参数"}
+
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     # 定义所有可用工具
     all_tools = {
         "locate_row": (
@@ -551,6 +591,10 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
         "web_search_supplier": (
             {"description": "在互联网上搜索品牌的供应商、代理商、经销商信息。当用户询问某个品牌的供应商，或者数据库中没有该品牌的供应商时使用。", "args": {"brand": "str"}},
             _web_search_supplier,
+        ),
+        "web_browse": (
+            {"description": "使用浏览器访问网页提取内容，或使用搜索引擎搜索信息。当需要查看具体网页内容或搜索详细信息时使用。", "args": {"url": "str?", "action": "str?", "query": "str?"}},
+            _web_browse,
         ),
     }
 

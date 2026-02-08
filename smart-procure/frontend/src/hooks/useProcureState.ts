@@ -16,6 +16,7 @@ const DEFAULT_TOOL_CONFIGS: ToolConfig[] = [
   { id: 'get_row_slot_snapshot', name: '槽位查询', description: '获取行的报价槽位状态', enabled: true },
   { id: 'supplier_lookup', name: '供应商查询', description: '从数据库查询供应商信息', enabled: true },
   { id: 'web_search_supplier', name: '网络搜索', description: '在互联网上搜索供应商信息', enabled: true },
+  { id: 'web_browse', name: '网页浏览', description: '使用浏览器访问网页提取信息', enabled: true },
 ];
 
 export const useProcureState = () => {
