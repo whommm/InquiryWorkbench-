@@ -1105,8 +1105,8 @@ async def list_sheets(
                 "name": sheet.name,
                 "item_count": sheet.item_count,
                 "completion_rate": sheet.completion_rate,
-                "created_at": sheet.created_at.isoformat() if sheet.created_at else "",
-                "updated_at": sheet.updated_at.isoformat() if sheet.updated_at else ""
+                "created_at": sheet.created_at.isoformat() + "Z" if sheet.created_at else "",
+                "updated_at": sheet.updated_at.isoformat() + "Z" if sheet.updated_at else ""
             })
 
         return {"sheets": result, "total": len(result)}

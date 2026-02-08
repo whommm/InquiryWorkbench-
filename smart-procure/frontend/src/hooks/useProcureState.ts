@@ -20,7 +20,7 @@ const DEFAULT_TOOL_CONFIGS: ToolConfig[] = [
 ];
 
 export const useProcureState = () => {
-  const { getActiveTab, updateTabData, activeTabId } = useTabsStore();
+  const { getActiveTab, updateTab, activeTabId } = useTabsStore();
   const [isThinking, setIsThinking] = useState(false);
   const [toolConfigs, setToolConfigs] = useState<ToolConfig[]>(DEFAULT_TOOL_CONFIGS);
 
@@ -36,7 +36,7 @@ export const useProcureState = () => {
       try {
         const res = await initSheet();
         if (res && res.data && activeTabId) {
-          await updateTabData(activeTabId, {
+          await updateTab(activeTabId, {
             sheetData: res.data,
             isDirty: false
           });
@@ -44,7 +44,7 @@ export const useProcureState = () => {
       } catch (e) {
         console.error("Failed to load init data", e);
         if (activeTabId) {
-          await updateTabData(activeTabId, {
+          await updateTab(activeTabId, {
             chatHistory: [...chatHistory, {
               role: 'assistant',
               content: '连接后端失败，请检查 Docker 服务。'
@@ -62,7 +62,7 @@ export const useProcureState = () => {
     const nextHistory = [...chatHistory, { role: 'user' as const, content: message }];
 
     // Update chat history immediately
-    await updateTabData(activeTabId, {
+    await updateTab(activeTabId, {
       chatHistory: nextHistory
     });
 
@@ -102,12 +102,12 @@ export const useProcureState = () => {
       // 更新标签页数据（保存到 IndexedDB，标记为 isDirty）
       // 用户需要手动点击保存按钮才会同步到后端
       console.log('[Chat] 更新标签页数据...');
-      await updateTabData(activeTabId, updates);
+      await updateTab(activeTabId, updates);
       console.log('[Chat] 标签页数据更新完成');
 
     } catch (e) {
       console.error('[Chat] 处理失败:', e);
-      await updateTabData(activeTabId, {
+      await updateTab(activeTabId, {
         chatHistory: [...nextHistory, { role: 'assistant', content: `错误: ${(e as Error).message}` }]
       });
     } finally {
@@ -120,7 +120,7 @@ export const useProcureState = () => {
 
     setIsThinking(true);
     try {
-        await updateTabData(activeTabId, {
+        await updateTab(activeTabId, {
           chatHistory: [...chatHistory, { role: 'user', content: `正在上传文件: ${file.name}...` }]
         });
 
@@ -150,7 +150,7 @@ export const useProcureState = () => {
               successMessage += '💡 您可以直接在聊天框中输入报价信息，例如："第2行，单价5000，找张三"';
             }
 
-            await updateTabData(activeTabId, {
+            await updateTab(activeTabId, {
               name: fileName,  // Update tab name with uploaded filename
               sheetData: res.data,
               chatHistory: [...chatHistory,
@@ -161,7 +161,7 @@ export const useProcureState = () => {
         }
     } catch (e) {
         console.error("Upload failed", e);
-        await updateTabData(activeTabId, {
+        await updateTab(activeTabId, {
           chatHistory: [...chatHistory,
             { role: 'user', content: `正在上传文件: ${file.name}...` },
             { role: 'assistant', content: `文件上传失败: ${(e as Error).message}` }
@@ -174,14 +174,15 @@ export const useProcureState = () => {
 
   const handleSheetDataChange = async (next: SheetData) => {
     if (!activeTabId) return;
-    await updateTabData(activeTabId, {
-      sheetData: next
+    await updateTab(activeTabId, {
+      sheetData: next,
+      isDirty: true
     });
   };
 
   const clearChatHistory = async () => {
     if (!activeTabId) return;
-    await updateTabData(activeTabId, {
+    await updateTab(activeTabId, {
       chatHistory: []
     });
   };
@@ -216,7 +217,7 @@ export const useProcureState = () => {
         console.warn('供应商提取失败:', extractError);
       }
 
-      await updateTabData(activeTabId, { isDirty: false });
+      await updateTab(activeTabId, { isDirty: false });
       console.log(`✓ 手动保存成功: ${activeTab.name}`);
       return { success: true, newSupplierCount };
     } catch (error) {

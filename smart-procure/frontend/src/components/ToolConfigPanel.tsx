@@ -8,12 +8,12 @@ export interface ToolConfig {
 }
 
 interface ToolConfigPanelProps {
-  tools: ToolConfig[];
+  configs: ToolConfig[];
   onToggle: (toolId: string) => void;
   onClose: () => void;
 }
 
-const ToolConfigPanel: React.FC<ToolConfigPanelProps> = ({ tools, onToggle, onClose }) => {
+const ToolConfigPanel: React.FC<ToolConfigPanelProps> = ({ configs, onToggle, onClose }) => {
   return (
     <div className="absolute top-12 right-0 w-80 bg-white rounded-lg shadow-xl border border-gray-200 z-50">
       <div className="flex items-center justify-between p-3 border-b border-gray-100">
@@ -28,7 +28,7 @@ const ToolConfigPanel: React.FC<ToolConfigPanelProps> = ({ tools, onToggle, onCl
         </button>
       </div>
       <div className="p-3 space-y-3 max-h-80 overflow-y-auto">
-        {tools.map((tool) => (
+        {configs.map((tool) => (
           <div
             key={tool.id}
             className="flex items-start gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors"

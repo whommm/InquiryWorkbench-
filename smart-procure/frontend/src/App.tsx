@@ -14,6 +14,8 @@ import { useAutoSave } from './hooks/useAutoSave';
 import { getNotifications, AUTH_EXPIRED_EVENT } from './utils/api';
 import AuthPage from './pages/AuthPage';
 
+import { Toaster } from 'sonner';
+
 function App() {
   const { initializeTabs, isLoading, activeTabId, clearTabs } = useTabsStore();
   const { sheetData, chatHistory, isThinking, isDirty, toolConfigs, handleSendMessage, handleFileUpload, handleSheetDataChange, clearChatHistory, handleToolToggle, handleManualSave } = useProcureState();
@@ -99,124 +101,102 @@ function App() {
     setSelectedRow(rowIndex);
   };
 
-  if (authLoading) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-gray-600">加载中...</div>
-      </div>
-    );
-  }
-
   if (!isAuthenticated) {
-    return <AuthPage />;
+    if (authLoading) {
+      return (
+        <div className="h-screen w-screen flex items-center justify-center bg-gray-50">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600"></div>
+        </div>
+      );
+    }
+    return (
+      <>
+        <Toaster position="top-center" richColors />
+        <AuthPage />
+      </>
+    );
   }
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-gray-600">加载中...</div>
+      <div className="h-screen w-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600"></div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-screen">
-      <div className="flex items-center gap-2 bg-gray-100 border-b border-gray-300 px-2 py-1">
-        <TabBar />
-        <button
-          onClick={() => setShowHistory(true)}
-          className="px-3 py-1.5 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors whitespace-nowrap"
-          title="查看历史记录"
-        >
-          历史记录
-        </button>
-        <button
-          onClick={() => setShowSuppliers(true)}
-          className="px-3 py-1.5 text-sm bg-green-500 text-white rounded hover:bg-green-600 transition-colors whitespace-nowrap"
-          title="供应商管理"
-        >
-          供应商
-        </button>
-        <button
-          onClick={() => setShowRecommend(!showRecommend)}
-          className={`px-3 py-1.5 text-sm rounded transition-colors whitespace-nowrap ${
-            showRecommend
-              ? 'bg-purple-600 text-white hover:bg-purple-700'
-              : 'bg-purple-500 text-white hover:bg-purple-600'
-          }`}
-          title="供应商推荐"
-        >
-          {showRecommend ? '隐藏推荐' : '显示推荐'}
-        </button>
-        <div className="flex-1" />
-        <button
-          onClick={onSave}
-          disabled={isSaving || !isDirty}
-          className={`px-3 py-1.5 text-sm rounded transition-colors whitespace-nowrap ${
-            isDirty
-              ? 'bg-orange-500 text-white hover:bg-orange-600'
-              : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-          } ${isSaving ? 'opacity-70' : ''}`}
-          title={isDirty ? '有未保存的修改，点击保存' : '已保存'}
-        >
-          {isSaving ? '保存中...' : '保存'}
-        </button>
-        <span className="text-sm text-gray-600">
-          {user?.display_name || user?.username}
-        </span>
-        <button
-          onClick={() => { clearTabs(); logout(); }}
-          className="px-3 py-1.5 text-sm bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors whitespace-nowrap"
-        >
-          退出
-        </button>
-      </div>
-      <div className="flex-1 overflow-hidden">
-        <Layout
-          collapsed={!showChat}
-          onToggleCollapse={() => setShowChat(!showChat)}
-          left={
-            <ChatPanel
-              history={chatHistory}
-              onSend={handleSendMessage}
-              onFileUpload={handleFileUpload}
-              isThinking={isThinking}
-              onClear={clearChatHistory}
-              toolConfigs={toolConfigs}
-              onToolToggle={handleToolToggle}
+    <Layout
+      showChat={showChat}
+      onToggleChat={() => setShowChat(!showChat)}
+      showRightPanel={showRecommend}
+      onToggleRightPanel={() => setShowRecommend(!showRecommend)}
+      rightPanel={
+        <RecommendPanel
+          isOpen={showRecommend}
+          onClose={() => setShowRecommend(false)}
+          selectedRow={selectedRow}
+          sheetData={sheetData}
+        />
+      }
+      sidebarContent={
+        <div className="flex flex-col h-full bg-gray-50 border-r border-gray-200">
+          <TabBar 
+            onHistoryClick={() => setShowHistory(true)} 
+            onSupplierClick={() => setShowSuppliers(true)}
+            onRecommendClick={() => setShowRecommend(true)}
+          />
+        </div>
+      }
+      mainContent={
+        <div className="h-full relative flex flex-col bg-white">
+          <UniverSheet 
+            data={sheetData} 
+            onChange={handleSheetDataChange}
+            onRowClick={handleRowClick}
+            isDirty={isDirty}
+            onSave={onSave}
+            isSaving={isSaving}
+          />
+          {toast && (
+            <Toast 
+              message={toast.message} 
+              type={toast.type} 
+              onClose={() => setToast(null)} 
             />
-          }
-          right={
-            <div className="h-full flex">
-              <div className="flex-1 min-w-0">
-                <UniverSheet
-                  data={sheetData}
-                  onDataChange={handleSheetDataChange}
-                  onRowClick={handleRowClick}
-                />
-              </div>
-              {showRecommend && (
-                <div className="w-80 border-l border-gray-200 bg-white">
-                  <RecommendPanel
-                    selectedRow={selectedRow}
-                    sheetData={sheetData}
-                  />
-                </div>
-              )}
-            </div>
-          }
+          )}
+          <Toaster position="top-center" richColors />
+        </div>
+      }
+      chatPanel={
+        <ChatPanel
+          messages={chatHistory}
+          onSendMessage={handleSendMessage}
+          isThinking={isThinking}
+          onFileUpload={handleFileUpload}
+          toolConfigs={toolConfigs}
+          onToolToggle={handleToolToggle}
+          onClearHistory={clearChatHistory}
+          onCollapse={() => setShowChat(false)}
         />
-      </div>
-      {showHistory && <HistoryPanel onClose={() => setShowHistory(false)} />}
-      {showSuppliers && <SupplierPanel onClose={() => setShowSuppliers(false)} />}
-      {toast && (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          onClose={() => setToast(null)}
-        />
-      )}
-    </div>
+      }
+    >
+      <HistoryPanel 
+        isOpen={showHistory} 
+        onClose={() => setShowHistory(false)}
+        onRestoreHistory={(history) => {
+          // TODO: implement history restore
+          console.log('Restore history:', history);
+          setShowHistory(false);
+        }}
+        onClearHistory={clearChatHistory}
+      />
+      <SupplierPanel
+        isOpen={showSuppliers}
+        onClose={() => setShowSuppliers(false)}
+        selectedRow={selectedRow}
+      />
+    </Layout>
   );
 }
 

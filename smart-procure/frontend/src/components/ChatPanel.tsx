@@ -4,17 +4,28 @@ import type { ToolConfig } from './ToolConfigPanel';
 import ToolConfigPanel from './ToolConfigPanel';
 
 interface ChatPanelProps {
-  history: ChatMessage[];
-  onSend: (msg: string) => void;
-  onFileUpload: (file: File) => void;
+  messages: ChatMessage[];
+  onSendMessage: (msg: string) => Promise<void>;
+  onFileUpload: (file: File) => Promise<void>;
   isThinking: boolean;
-  onClear: () => void;
   toolConfigs: ToolConfig[];
   onToolToggle: (toolId: string) => void;
+  onClearHistory?: () => void;
+  onCollapse?: () => void;
 }
 
-const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSend, onFileUpload, isThinking, onClear, toolConfigs, onToolToggle }) => {
+const ChatPanel: React.FC<ChatPanelProps> = ({
+  messages,
+  onSendMessage,
+  onFileUpload,
+  isThinking,
+  toolConfigs,
+  onToolToggle,
+  onClearHistory,
+  onCollapse
+}) => {
   const [input, setInput] = useState("");
+
   const [showToolConfig, setShowToolConfig] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -23,7 +34,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSend, onFileUpload, is
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isThinking) return;
-    onSend(input);
+    onSendMessage(input);
     setInput("");
   };
 
@@ -50,9 +61,10 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSend, onFileUpload, is
     if (e.shiftKey) return;
     e.preventDefault();
     if (!input.trim() || isThinking) return;
-    onSend(input);
+    onSendMessage(input);
     setInput("");
   };
+
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -66,19 +78,20 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSend, onFileUpload, is
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-  }, [history.length, isThinking]);
+  }, [messages.length, isThinking]);
 
   return (
     <div className="flex flex-col h-full bg-white border-r border-gray-200 shadow-lg">
       {/* 头部 */}
-      <div className="p-3 border-b border-gray-100 bg-gray-50 flex items-center gap-3 relative">
-        <span className="font-semibold text-gray-700 flex items-center">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-emerald-500 mr-2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
-          </svg>
-          AI 助手
-        </span>
-        <button
+      <div className="p-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between relative">
+        <div className="flex items-center gap-3">
+          <span className="font-semibold text-gray-700 flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-emerald-500 mr-2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
+            </svg>
+            AI 助手
+          </span>
+          <button
           type="button"
           onClick={() => setShowToolConfig(!showToolConfig)}
           className={`flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-all ${
@@ -94,90 +107,82 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSend, onFileUpload, is
         </button>
         <button
           type="button"
-          onClick={onClear}
+          onClick={onClearHistory}
           className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-orange-600 hover:bg-orange-50 rounded-md transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-          disabled={isThinking || history.length === 0}
+          disabled={isThinking || messages.length === 0}
           title="清空聊天记录"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="w-4 h-4">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5.5 5.5L18.5 18.5M8 4h8l1 2H7l1-2zM6 6h12v2H6V6zM7 8l1 12h8l1-12" />
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+            <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
           </svg>
           <span>清空</span>
         </button>
-        {showToolConfig && (
-          <ToolConfigPanel
-            tools={toolConfigs}
-            onToggle={onToolToggle}
-            onClose={() => setShowToolConfig(false)}
-          />
-        )}
+        </div>
+
+        {/* 折叠按钮 */}
+        <button
+          type="button"
+          onClick={onCollapse}
+          className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-all"
+          title="收起面板"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+          </svg>
+        </button>
       </div>
 
-      {/* 对话历史区 - 参考 Mockup 设计 */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50/50">
-        {history.length === 0 && (
-          <div className="mx-auto bg-gray-200/60 text-gray-500 text-xs py-1 px-3 rounded-full w-fit">
-            上传 Excel 或输入报价开始对话
-          </div>
-        )}
+      {/* Tool Config Panel */}
+      {showToolConfig && (
+        <ToolConfigPanel
+          configs={toolConfigs}
+          onToggle={onToolToggle}
+          onClose={() => setShowToolConfig(false)}
+        />
+      )}
 
-        {history.map((msg, i) => {
-          if (msg.role === 'system') {
-            return (
-              <div key={i} className="mx-auto bg-gray-200/60 text-gray-500 text-xs py-1 px-3 rounded-full w-fit">
-                {msg.content}
-              </div>
-            );
-          }
-
-          if (msg.role === 'user') {
-            return (
-              <div key={i} className="flex items-end justify-end">
-                <div className="mr-2 bg-emerald-600 text-white p-3 rounded-lg rounded-tr-none shadow-sm text-sm max-w-[90%] whitespace-pre-wrap break-words">
-                  {msg.content}
-                </div>
-                <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 flex-shrink-0 mb-1">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
-                  </svg>
-                </div>
-              </div>
-            );
-          }
-
-          return (
-            <div key={i} className="flex items-start">
-              <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 flex-shrink-0 mt-1">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
-                </svg>
-              </div>
-              <div className="ml-2 bg-white p-3 rounded-lg rounded-tl-none shadow-sm border border-gray-100 text-sm max-w-[90%] whitespace-pre-wrap break-words">
-                {msg.content}
-              </div>
+      {/* 消息列表 */}
+      <div 
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth"
+      >
+        {messages.map((msg, idx) => (
+          <div 
+            key={idx} 
+            className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
+          >
+            <div className={`
+              max-w-[90%] rounded-lg p-3 text-sm shadow-sm
+              ${msg.role === 'user' 
+                ? 'bg-emerald-600 text-white rounded-br-none' 
+                : 'bg-gray-100 text-gray-800 rounded-bl-none'
+              }
+            `}>
+              <div className="whitespace-pre-wrap leading-relaxed">{msg.content}</div>
             </div>
-          );
-        })}
-
-        {isThinking === true && (
+            {msg.role === 'assistant' && (
+              <span className="text-[10px] text-gray-400 mt-1 ml-1">AI 助手</span>
+            )}
+            {msg.role === 'user' && (
+              <span className="text-[10px] text-gray-400 mt-1 mr-1">我</span>
+            )}
+          </div>
+        ))}
+        {isThinking && (
           <div className="flex items-start">
-            <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 flex-shrink-0 mt-1">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
-              </svg>
-            </div>
-            <div className="ml-2 bg-white p-3 rounded-lg rounded-tl-none shadow-sm border border-gray-100 flex items-center gap-2">
-              <span className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
-              <span className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
-              <span className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce"></span>
-              <span className="text-xs text-gray-400 ml-2">AI 正在思考...</span>
+            <div className="bg-gray-100 text-gray-800 rounded-lg rounded-bl-none p-3 shadow-sm">
+              <div className="flex space-x-1.5 items-center h-5">
+                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></div>
+              </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* 输入区 - 参考 Mockup 设计 */}
-      <div className="p-3 border-t border-gray-200 bg-white">
+      {/* 输入框 */}
+      <div className="p-4 bg-white border-t border-gray-100">
         <form onSubmit={handleSubmit}>
           <div className="relative">
             <textarea
