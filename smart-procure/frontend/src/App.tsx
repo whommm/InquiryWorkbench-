@@ -97,7 +97,6 @@ function App() {
 
   // Handle row click from UniverSheet
   const handleRowClick = (rowIndex: number) => {
-    console.log('[App] handleRowClick called with rowIndex:', rowIndex);
     setSelectedRow(rowIndex);
   };
 

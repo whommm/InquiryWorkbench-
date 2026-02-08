@@ -36,12 +36,23 @@ import SheetsFilterUIZhCN from '@univerjs/sheets-filter-ui/locale/zh-CN';
 
 interface UniverSheetProps {
   data: unknown[][];
-  onDataChange?: (next: unknown[][]) => void;
+  onChange?: (next: unknown[][]) => Promise<void>;
   onRowClick?: (rowIndex: number) => void;
+  isDirty?: boolean;
+  onSave?: () => Promise<void>;
+  isSaving?: boolean;
 }
 
-const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClick }) => {
-  const onDataChangeRef = useRef<typeof onDataChange>(onDataChange);
+const UniverSheet: React.FC<UniverSheetProps> = ({ 
+  data, 
+  onChange, 
+  onRowClick,
+  isDirty = false,
+  onSave,
+  isSaving = false
+}) => {
+  const onDataChangeRef = useRef<typeof onChange>(onChange);
+
   const onRowClickRef = useRef<typeof onRowClick>(onRowClick);
   const containerRef = useRef<HTMLDivElement>(null);
   const univerRef = useRef<Univer | null>(null);
@@ -244,8 +255,8 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
         univer.registerPlugin(UniverSheetsUIPlugin);
         univer.registerPlugin(UniverSheetsFormulaPlugin);
         univer.registerPlugin(UniverSheetsFormulaUIPlugin);
-        univer.registerPlugin(UniverSheetsFilterPlugin);
-        univer.registerPlugin(UniverSheetsFilterUIPlugin);
+        univer.registerPlugin(UniverSheetsFilterPlugin as any);
+        univer.registerPlugin(UniverSheetsFilterUIPlugin as any);
         univer.createUnit(UniverInstanceType.UNIVER_SHEET, {});
 
         const univerAPI = FUniver.newAPI(univer);
@@ -303,8 +314,6 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
 
             if (!isMutationSetValues) return;
 
-            console.log('[UniverSheet] Data change command:', cmd.id, 'params:', JSON.stringify(cmd.params));
-
             const params =
               cmd.params && typeof cmd.params === 'object'
                 ? (cmd.params as { range?: unknown; value?: unknown; cellValue?: unknown })
@@ -315,7 +324,6 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
             if (isMutationSetValues && params?.cellValue) {
               const cellValue = params.cellValue as Record<string, Record<string, { v?: unknown; f?: string }>>;
               const rowKeys = Object.keys(cellValue).map(Number).sort((a, b) => a - b);
-              console.log('[UniverSheet] cellValue mutation - rows:', rowKeys.join(','), 'total:', rowKeys.length);
 
               const next = [...latestDataRef.current.map(row => [...row])];
 
@@ -351,8 +359,7 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
               }
 
               latestDataRef.current = next;
-              isUserEditRef.current = true; // 标记这是用户编辑
-              console.log('[UniverSheet] Applied cellValue mutation, calling onDataChange');
+              isUserEditRef.current = true;
               onDataChangeRef.current?.(next);
             }
           });
@@ -365,43 +372,33 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
             if (!command || typeof command !== 'object') return;
             const cmd = command as { id?: unknown; params?: unknown };
 
-            // Log all commands to see what's being executed
-            console.log('[UniverSheet] Command executed:', cmd.id);
-
             // Listen for selection change commands
             if (cmd.id === 'sheet.command.set-selections' || cmd.id === 'sheet.operation.set-selections') {
-              console.log('[UniverSheet] Selection command detected!');
               try {
                 const activeSheet = univerAPI.getActiveWorkbook()?.getActiveSheet();
                 if (!activeSheet) {
-                  console.log('[UniverSheet] No active sheet');
                   return;
                 }
 
                 const selection = activeSheet.getSelection();
                 if (!selection) {
-                  console.log('[UniverSheet] No selection');
                   return;
                 }
 
                 const range = selection.getActiveRange();
                 if (!range) {
-                  console.log('[UniverSheet] No active range');
                   return;
                 }
 
                 // Access the internal _range object to get row number
                 const rangeData = (range as any)._range;
                 if (!rangeData) {
-                  console.log('[UniverSheet] No _range data');
                   return;
                 }
 
                 const startRow = rangeData.startRow;
-                console.log('[UniverSheet] Selected row:', startRow);
 
                 if (typeof startRow === 'number' && startRow >= 0) {
-                  console.log('[UniverSheet] Calling onRowClick with row:', startRow);
                   onRowClickRef.current?.(startRow);
                 }
               } catch (e) {
@@ -509,8 +506,9 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
   }, [applyRangeToData, writeDataToActiveSheet]);
 
   useEffect(() => {
-    onDataChangeRef.current = onDataChange;
-  }, [onDataChange]);
+    onDataChangeRef.current = onChange;
+    onRowClickRef.current = onRowClick;
+  }, [onChange, onRowClick]);
 
   // Update Workbook Data
   useEffect(() => {
@@ -519,7 +517,6 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
 
     // 如果数据变化来自用户编辑，不要写回 Univer（避免污染撤销栈）
     if (isUserEditRef.current) {
-      console.log('[UniverSheet] Skipping write-back for user edit');
       isUserEditRef.current = false;
       return;
     }
@@ -543,8 +540,55 @@ const UniverSheet: React.FC<UniverSheetProps> = ({ data, onDataChange, onRowClic
   }, [data, writeDataToActiveSheet]);
 
   return (
-    <div className="h-full w-full flex flex-col relative">
-        <div ref={containerRef} className="flex-1 w-full relative" />
+    <div className="flex flex-col h-full w-full relative">
+      {/* Toolbar */}
+      <div className="h-10 bg-white border-b border-gray-200 flex items-center px-4 justify-between shrink-0">
+        <div className="flex items-center gap-2 text-sm text-gray-600">
+           <span className="font-medium">表格编辑器</span>
+        </div>
+        
+        {/* Save Status/Button */}
+        <div className="flex items-center gap-3">
+          {isDirty && (
+            <span className="text-xs text-orange-500 font-medium">
+              未保存
+            </span>
+          )}
+          
+          <button
+            onClick={onSave}
+            disabled={!isDirty || isSaving}
+            className={`
+              flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all
+              ${isDirty 
+                ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm' 
+                : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+              }
+              ${isSaving ? 'opacity-70 cursor-wait' : ''}
+            `}
+          >
+            {isSaving ? (
+              <>
+                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span>保存中...</span>
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                </svg>
+                <span>保存</span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+      
+      {/* Univer Container */}
+      <div ref={containerRef} className="flex-1 w-full overflow-hidden" />
     </div>
   );
 };
