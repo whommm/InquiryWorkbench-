@@ -204,12 +204,6 @@ class SupplierService:
             return True
         return False
 
-    def _calculate_similarity(self, str1: str, str2: str) -> float:
-        """Calculate similarity between two strings (0-1)"""
-        if not str1 or not str2:
-            return 0.0
-        return SequenceMatcher(None, str1.lower(), str2.lower()).ratio()
-
     def _normalize_model(self, model: str) -> str:
         """标准化型号：去除横杠、空格、斜杠，转小写"""
         if not model:
@@ -246,26 +240,6 @@ class SupplierService:
             return 0.9
         # 模糊匹配
         return SequenceMatcher(None, norm1, norm2).ratio()
-
-    def _parse_supplier_name(self, supplier_str: str) -> str:
-        """Parse supplier string to extract company name
-        Format: '公司名称 联系人 电话' -> '公司名称'
-        """
-        if not supplier_str:
-            return ""
-
-        # Remove extra spaces
-        supplier_str = " ".join(supplier_str.split())
-
-        # Try to extract company name (before first person name or phone)
-        # Pattern: company name usually ends with '公司', '有限公司', '集团' etc.
-        match = re.search(r'^(.+?(?:公司|集团|厂|中心|部))', supplier_str)
-        if match:
-            return match.group(1).strip()
-
-        # Fallback: take first part before space
-        parts = supplier_str.split()
-        return parts[0] if parts else supplier_str
 
     def recommend_suppliers(
         self,

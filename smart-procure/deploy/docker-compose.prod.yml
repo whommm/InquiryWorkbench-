@@ -1,6 +1,15 @@
 version: '3.8'
 
 services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: smart-procure-qdrant
+    restart: always
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - app-network
+
   postgres:
     image: postgres:15-alpine
     container_name: smart-procure-postgres
@@ -32,9 +41,15 @@ services:
       JWT_EXPIRE_MINUTES: 1440
       API_KEY: ${API_KEY}
       TAVILY_API_KEY: ${TAVILY_API_KEY}
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-supplier_products}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
     depends_on:
       postgres:
         condition: service_healthy
+      qdrant:
+        condition: service_started
     networks:
       - app-network
 
@@ -63,6 +78,7 @@ services:
 
 volumes:
   postgres_data:
+  qdrant_data:
 
 networks:
   app-network:
