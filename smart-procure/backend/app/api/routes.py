@@ -14,6 +14,16 @@ from ..services.excel_export import export_sheet_to_excel
 from ..services.supplier_mock import MOCK_SUPPLIERS
 from ..services.web_search import search_suppliers_online, format_search_results
 from ..services.browser_service import browse_page_sync, search_baidu_sync
+from ..mcp import (
+    browser_create_session,
+    browser_close_session,
+    browser_navigate,
+    browser_click,
+    browser_type,
+    browser_snapshot,
+    browser_scroll,
+    browser_back,
+)
 from ..core.llm import call_llm
 from ..services.agent_runtime import ToolRegistry, run_two_stage_agent
 from ..services.sheet_schema import (
@@ -574,6 +584,77 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    # ========== 迭代式浏览器工具 ==========
+    # 用于存储当前会话的浏览器 session_id
+    browser_session = {"id": None}
+
+    def _browser_start(args: dict) -> dict:
+        """启动浏览器会话"""
+        result = browser_create_session()
+        if result["success"]:
+            browser_session["id"] = result["session_id"]
+        return result
+
+    def _browser_stop(args: dict) -> dict:
+        """关闭浏览器会话"""
+        if not browser_session["id"]:
+            return {"success": False, "error": "没有活动的浏览器会话"}
+        result = browser_close_session(browser_session["id"])
+        browser_session["id"] = None
+        return result
+
+    def _browser_goto(args: dict) -> dict:
+        """导航到指定 URL"""
+        if not browser_session["id"]:
+            # 自动创建会话
+            start_result = browser_create_session()
+            if not start_result["success"]:
+                return start_result
+            browser_session["id"] = start_result["session_id"]
+
+        url = args.get("url")
+        if not url:
+            return {"success": False, "error": "请提供 url 参数"}
+        return browser_navigate(browser_session["id"], url)
+
+    def _browser_click_element(args: dict) -> dict:
+        """点击页面元素"""
+        if not browser_session["id"]:
+            return {"success": False, "error": "请先启动浏览器会话"}
+        element = args.get("element")
+        if not element:
+            return {"success": False, "error": "请提供 element 参数"}
+        return browser_click(browser_session["id"], element)
+
+    def _browser_input(args: dict) -> dict:
+        """在元素中输入文本"""
+        if not browser_session["id"]:
+            return {"success": False, "error": "请先启动浏览器会话"}
+        element = args.get("element")
+        text = args.get("text")
+        if not element or not text:
+            return {"success": False, "error": "请提供 element 和 text 参数"}
+        return browser_type(browser_session["id"], element, text)
+
+    def _browser_get_snapshot(args: dict) -> dict:
+        """获取当前页面快照"""
+        if not browser_session["id"]:
+            return {"success": False, "error": "请先启动浏览器会话"}
+        return browser_snapshot(browser_session["id"])
+
+    def _browser_scroll_page(args: dict) -> dict:
+        """滚动页面"""
+        if not browser_session["id"]:
+            return {"success": False, "error": "请先启动浏览器会话"}
+        direction = args.get("direction", "down")
+        return browser_scroll(browser_session["id"], direction)
+
+    def _browser_go_back(args: dict) -> dict:
+        """返回上一页"""
+        if not browser_session["id"]:
+            return {"success": False, "error": "请先启动浏览器会话"}
+        return browser_back(browser_session["id"])
+
     # 定义所有可用工具
     all_tools = {
         "locate_row": (
@@ -596,6 +677,39 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
             {"description": "使用浏览器访问网页提取内容，或使用搜索引擎搜索信息。当需要查看具体网页内容或搜索详细信息时使用。", "args": {"url": "str?", "action": "str?", "query": "str?"}},
             _web_browse,
         ),
+        # 迭代式浏览器工具
+        "browser_start": (
+            {"description": "启动浏览器会话，用于迭代式浏览。返回 session_id。", "args": {}},
+            _browser_start,
+        ),
+        "browser_stop": (
+            {"description": "关闭浏览器会话", "args": {}},
+            _browser_stop,
+        ),
+        "browser_goto": (
+            {"description": "导航到指定 URL（会自动启动会话）", "args": {"url": "str"}},
+            _browser_goto,
+        ),
+        "browser_click": (
+            {"description": "点击页面上的元素。element 参数是元素的描述文本或可访问性标签。", "args": {"element": "str"}},
+            _browser_click_element,
+        ),
+        "browser_input": (
+            {"description": "在输入框中输入文本。element 是输入框描述，text 是要输入的内容。", "args": {"element": "str", "text": "str"}},
+            _browser_input,
+        ),
+        "browser_snapshot": (
+            {"description": "获取当前页面的可访问性快照，用于了解页面结构和内容。", "args": {}},
+            _browser_get_snapshot,
+        ),
+        "browser_scroll": (
+            {"description": "滚动页面。direction 可以是 'up' 或 'down'。", "args": {"direction": "str?"}},
+            _browser_scroll_page,
+        ),
+        "browser_back": (
+            {"description": "返回上一页", "args": {}},
+            _browser_go_back,
+        ),
     }
 
     # 根据 enabled_tools 参数选择性注册工具
@@ -604,6 +718,11 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
         if tool_name in all_tools:
             spec, fn = all_tools[tool_name]
             tools.register(tool_name, spec, fn)
+
+    # 调试日志
+    import logging
+    logging.warning(f"[DEBUG] 已注册工具: {[t['name'] for t in tools.describe()]}")
+    logging.warning(f"[DEBUG] 用户消息: {request.message}")
 
     agent_out = run_two_stage_agent(
         call_llm=call_llm,

@@ -2,8 +2,9 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# 安装 Playwright 系统依赖
+# 安装系统依赖 + Node.js
 RUN apt-get update && apt-get install -y \
+    curl \
     libnss3 \
     libnspr4 \
     libatk1.0-0 \
@@ -19,6 +20,11 @@ RUN apt-get update && apt-get install -y \
     libasound2 \
     libpango-1.0-0 \
     libcairo2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安装 Node.js 20.x (用于 MCP 服务)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 COPY backend/requirements.txt .
