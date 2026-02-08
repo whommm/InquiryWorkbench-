@@ -125,7 +125,7 @@ export const recommendSuppliers = async (data: {
   brand?: string;
   limit?: number;
 }) => {
-  const response = await api.post('/suppliers/recommend', data);
+  const response = await api.post('/suppliers/recommend/v2', data);
   return response.data;
 };
 

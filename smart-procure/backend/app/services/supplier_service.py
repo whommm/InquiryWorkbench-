@@ -465,3 +465,151 @@ class SupplierService:
 
         logger.info(f"[推荐] 返回 {len(top_recommendations)} 个供应商")
         return top_recommendations
+
+    def recommend_suppliers_v2(
+        self,
+        product_name: str,
+        spec: str = "",
+        brand: str = "",
+        limit: int = 5
+    ) -> List[Dict[str, Any]]:
+        """基于向量检索的供应商推荐（V2）
+
+        使用 Qdrant 向量数据库进行语义匹配，支持：
+        - 语义级匹配（"气缸" vs "气动执行器"）
+        - 自动品牌关联
+        - 毫秒级检索
+        """
+        from app.services.embedding_service import EmbeddingService, EmbeddingTextBuilder
+        from app.services.qdrant_service import QdrantService
+
+        logger.info("[推荐V2] 开始向量检索推荐")
+        logger.info(f"[推荐V2] 产品名称: {product_name}, 规格: {spec}, 品牌: {brand}")
+
+        embedding_service = EmbeddingService()
+        qdrant_service = QdrantService()
+
+        # 构建查询文本
+        query_text = EmbeddingTextBuilder.build_query_text(
+            product_name=product_name,
+            spec=spec,
+            brand=brand
+        )
+
+        if not query_text.strip():
+            logger.warning("[推荐V2] 查询文本为空")
+            return []
+
+        # 生成查询向量
+        query_embedding = embedding_service.get_embedding(query_text)
+        if not query_embedding:
+            logger.warning("[推荐V2] 无法生成查询向量，回退到V1算法")
+            return self.recommend_suppliers(product_name, spec, brand, limit)
+
+        # 向量检索
+        search_results = qdrant_service.search_with_brand_filter(
+            query_vector=query_embedding,
+            brand=brand if brand else None,
+            limit=50,
+            score_threshold=0.3
+        )
+
+        if not search_results:
+            logger.info("[推荐V2] 向量检索无结果，回退到V1算法")
+            return self.recommend_suppliers(product_name, spec, brand, limit)
+
+        logger.info(f"[推荐V2] 向量检索到 {len(search_results)} 条记录")
+
+        # 重排序并聚合
+        return self._rerank_and_aggregate_v2(search_results, limit)
+
+    def _rerank_and_aggregate_v2(
+        self,
+        vector_results: List[Dict],
+        limit: int
+    ) -> List[Dict[str, Any]]:
+        """重排序并按供应商聚合（V2）"""
+        # 按供应商聚合
+        supplier_groups: Dict[int, Dict] = {}
+
+        for result in vector_results:
+            payload = result["payload"]
+            sid = payload["supplier_id"]
+            similarity = result["score"]
+
+            if sid not in supplier_groups:
+                supplier_groups[sid] = {
+                    "supplier_id": sid,
+                    "products": [],
+                    "similarities": [],
+                    "total_quotes": 0,
+                    "brands": set()
+                }
+
+            group = supplier_groups[sid]
+            group["products"].append({
+                "name": payload.get("product_name", ""),
+                "model": payload.get("product_model", ""),
+                "brand": payload.get("brand", ""),
+                "similarity": similarity
+            })
+            group["similarities"].append(similarity)
+            group["total_quotes"] += payload.get("quote_count", 0)
+            if payload.get("brand"):
+                group["brands"].add(payload["brand"])
+
+        # 获取供应商信息
+        supplier_ids = list(supplier_groups.keys())
+        suppliers = self.db.query(Supplier).filter(
+            Supplier.id.in_(supplier_ids)
+        ).all()
+        supplier_map = {s.id: s for s in suppliers}
+
+        # 构建结果
+        results = []
+        for sid, group in supplier_groups.items():
+            supplier = supplier_map.get(sid)
+            if not supplier:
+                continue
+
+            avg_similarity = sum(group["similarities"]) / len(group["similarities"])
+            max_similarity = max(group["similarities"])
+
+            # 综合分数：相似度(60%) + 报价次数(30%) + 时效性(10%)
+            quote_factor = min(group["total_quotes"] / 10, 1.0)
+            recency = self._calc_recency(supplier.last_quote_date)
+            score = max_similarity * 0.6 + quote_factor * 0.3 + recency * 0.1
+
+            results.append({
+                "supplier_id": sid,
+                "supplier_name": supplier.company_name,
+                "company_name": supplier.company_name,
+                "contact_name": supplier.contact_name,
+                "contact_phone": supplier.contact_phone,
+                "quote_count": group["total_quotes"],
+                "brands": list(group["brands"]),
+                "products": group["products"][:3],
+                "avg_similarity": avg_similarity,
+                "max_similarity": max_similarity,
+                "recommendation_score": score,
+                "last_quote_date": supplier.last_quote_date,
+                "created_by": supplier.created_by
+            })
+
+        results.sort(key=lambda x: x["recommendation_score"], reverse=True)
+        return results[:limit]
+
+    def _calc_recency(self, last_date) -> float:
+        """计算时效性分数（0-1）"""
+        if not last_date:
+            return 0.0
+        days_ago = (datetime.utcnow() - last_date).days
+        if days_ago <= 7:
+            return 1.0
+        elif days_ago <= 30:
+            return 0.8
+        elif days_ago <= 90:
+            return 0.5
+        elif days_ago <= 180:
+            return 0.3
+        return 0.1

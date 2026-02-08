@@ -1349,6 +1349,89 @@ async def recommend_suppliers_endpoint(request: RecommendRequest, db: Session = 
         raise HTTPException(status_code=500, detail=f"Failed to recommend suppliers: {str(e)}")
 
 
+@router.post("/suppliers/recommend/v2")
+async def recommend_suppliers_v2_endpoint(
+    request: RecommendRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """基于向量检索的供应商推荐（V2）"""
+    try:
+        supplier_service = SupplierService(db)
+        recommendations = supplier_service.recommend_suppliers_v2(
+            product_name=request.product_name,
+            spec=request.spec or "",
+            brand=request.brand or "",
+            limit=request.limit or 5
+        )
+
+        result = []
+        for idx, rec in enumerate(recommendations, start=1):
+            star_rating = max(1, min(5, int(rec["recommendation_score"] * 5) + 1))
+
+            result.append({
+                "rank": idx,
+                "supplier_id": rec["supplier_id"],
+                "company_name": rec["company_name"],
+                "contact_name": rec["contact_name"],
+                "contact_phone": rec["contact_phone"],
+                "quote_count": rec["quote_count"],
+                "star_rating": star_rating,
+                "recommendation_score": round(rec["recommendation_score"], 3),
+                "avg_similarity": round(rec.get("avg_similarity", 0), 3),
+                "max_similarity": round(rec.get("max_similarity", 0), 3),
+                "brands": rec["brands"],
+                "products": rec.get("products", [])
+            })
+
+        return {
+            "recommendations": result,
+            "total": len(result),
+            "version": "v2",
+            "query": {
+                "product_name": request.product_name,
+                "spec": request.spec,
+                "brand": request.brand
+            }
+        }
+
+    except Exception as e:
+        print(f"[ERROR] Failed to recommend suppliers (V2): {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to recommend suppliers: {str(e)}")
+
+
+@router.post("/admin/embeddings/rebuild")
+async def rebuild_embeddings(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """重建所有向量索引"""
+    try:
+        from ..services.embedding_index_service import EmbeddingIndexService
+        service = EmbeddingIndexService(db)
+        stats = service.rebuild_all_indexes()
+        return {"status": "completed", "stats": stats}
+    except Exception as e:
+        print(f"[ERROR] Failed to rebuild embeddings: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to rebuild embeddings: {str(e)}")
+
+
+@router.get("/admin/embeddings/stats")
+async def get_embedding_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取向量索引统计信息"""
+    try:
+        from ..services.embedding_index_service import EmbeddingIndexService
+        service = EmbeddingIndexService(db)
+        stats = service.get_index_stats()
+        return {"status": "ok", "stats": stats}
+    except Exception as e:
+        print(f"[ERROR] Failed to get embedding stats: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get stats: {str(e)}")
+
+
 class ExtractSuppliersRequest(BaseModel):
     sheet_data: list
 
