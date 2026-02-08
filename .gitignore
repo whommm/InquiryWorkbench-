@@ -11,6 +11,7 @@ Thumbs.db
 
 # Tool directories
 .trae/
+.claude/
 
 # Backend (Python)
 smart-procure/backend/.env
