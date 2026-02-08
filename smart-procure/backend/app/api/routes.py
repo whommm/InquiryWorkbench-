@@ -11,7 +11,6 @@ from ..services.db_service import DBService
 from ..services.supplier_service import SupplierService
 from ..services.excel_core import process_update
 from ..services.excel_export import export_sheet_to_excel
-from ..services.supplier_mock import MOCK_SUPPLIERS
 from ..services.web_search import search_suppliers_online, format_search_results
 from ..services.browser_service import browse_page_sync, search_baidu_sync
 from ..mcp import (
@@ -770,17 +769,21 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
 
                 lookup_name = data_dict.get("lookup_supplier")
                 if lookup_name and not data_dict.get("supplier"):
-                    info = MOCK_SUPPLIERS.get(str(lookup_name).strip())
-                    if info:
-                        supplier = " ".join(
-                            [
-                                str(info.get("full_name") or "").strip(),
-                                str(info.get("contact") or "").strip(),
-                                str(info.get("phone") or "").strip(),
-                            ]
-                        ).strip()
-                        if supplier:
-                            data_dict["supplier"] = supplier
+                    # 尝试从数据库查找供应商
+                    try:
+                        supplier_service = SupplierService(db)
+                        results = supplier_service.search_suppliers(str(lookup_name).strip(), limit=1)
+                        if results:
+                            s = results[0]
+                            supplier_info = " ".join([
+                                s.company_name or "",
+                                s.contact_name or "",
+                                s.contact_phone or ""
+                            ]).strip()
+                            if supplier_info:
+                                data_dict["supplier"] = supplier_info
+                    except Exception as e:
+                        print(f"Supplier lookup failed: {e}")
 
                 field_names = getattr(UpdateAction, "model_fields", None)
                 if isinstance(field_names, dict):
@@ -875,17 +878,21 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
         try:
             lookup_name = data_dict.get("lookup_supplier")
             if lookup_name and not data_dict.get("supplier"):
-                info = MOCK_SUPPLIERS.get(str(lookup_name).strip())
-                if info:
-                    supplier = " ".join(
-                        [
-                            str(info.get("full_name") or "").strip(),
-                            str(info.get("contact") or "").strip(),
-                            str(info.get("phone") or "").strip(),
-                        ]
-                    ).strip()
-                    if supplier:
-                        data_dict["supplier"] = supplier
+                # 尝试从数据库查找供应商
+                try:
+                    supplier_service = SupplierService(db)
+                    results = supplier_service.search_suppliers(str(lookup_name).strip(), limit=1)
+                    if results:
+                        s = results[0]
+                        supplier_info = " ".join([
+                            s.company_name or "",
+                            s.contact_name or "",
+                            s.contact_phone or ""
+                        ]).strip()
+                        if supplier_info:
+                            data_dict["supplier"] = supplier_info
+                except Exception as e:
+                    print(f"Supplier lookup failed: {e}")
 
             field_names = getattr(UpdateAction, "model_fields", None)
             if isinstance(field_names, dict):

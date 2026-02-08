@@ -118,7 +118,7 @@ class SupplierService:
         brand: Optional[str] = None,
         price: Optional[float] = None
     ) -> Optional[SupplierProduct]:
-        """保存供应商-产品关联信息"""
+        """保存供应商-产品关联信息，并同步更新 Qdrant 索引"""
         if not product_name and not product_model:
             return None
 
@@ -133,6 +133,7 @@ class SupplierService:
             query = query.filter(SupplierProduct.product_model == product_model)
 
         existing = query.first()
+        target_record = None
 
         if existing:
             # 更新现有记录
@@ -144,7 +145,7 @@ class SupplierService:
             existing.updated_at = datetime.utcnow()
             self.db.commit()
             self.db.refresh(existing)
-            return existing
+            target_record = existing
         else:
             # 创建新记录
             new_record = SupplierProduct(
@@ -158,7 +159,21 @@ class SupplierService:
             self.db.add(new_record)
             self.db.commit()
             self.db.refresh(new_record)
-            return new_record
+            target_record = new_record
+        
+        # 同步更新 Qdrant 索引
+        if target_record:
+            try:
+                # 局部导入避免循环依赖
+                from app.services.embedding_index_service import EmbeddingIndexService
+                embedding_service = EmbeddingIndexService(self.db)
+                embedding_service.index_product(target_record)
+                logger.info(f"已同步更新产品索引: {target_record.id}")
+            except Exception as e:
+                # 索引失败不应阻塞主流程
+                logger.error(f"同步更新索引失败: {e}")
+
+        return target_record
 
     def search_suppliers(self, query: str, limit: int = 10) -> List[Supplier]:
         """Search suppliers by name, phone, or contact name"""
