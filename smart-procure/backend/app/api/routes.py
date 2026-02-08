@@ -534,32 +534,32 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
                 "results": []
             }
 
-    tools.register(
-        "locate_row",
-        {
-            "description": "按物料/品牌/型号或明确行号定位候选行",
-            "args": {"item_name": "str?", "brand": "str?", "model": "str?", "spec": "str?", "target_row": "int?"},
-        },
-        _locate_row,
-    )
-    tools.register(
-        "get_row_slot_snapshot",
-        {"description": "获取指定行的slot分组快照", "args": {"row": "int"}},
-        _row_snapshot,
-    )
-    tools.register(
-        "supplier_lookup",
-        {"description": "按人名/简称查供应商字符串（一个单元格）", "args": {"name": "str"}},
-        _supplier_lookup,
-    )
-    tools.register(
-        "web_search_supplier",
-        {
-            "description": "在互联网上搜索品牌的供应商、代理商、经销商信息。当用户询问某个品牌的供应商，或者数据库中没有该品牌的供应商时使用。",
-            "args": {"brand": "str"}
-        },
-        _web_search_supplier,
-    )
+    # 定义所有可用工具
+    all_tools = {
+        "locate_row": (
+            {"description": "按物料/品牌/型号或明确行号定位候选行", "args": {"item_name": "str?", "brand": "str?", "model": "str?", "spec": "str?", "target_row": "int?"}},
+            _locate_row,
+        ),
+        "get_row_slot_snapshot": (
+            {"description": "获取指定行的slot分组快照", "args": {"row": "int"}},
+            _row_snapshot,
+        ),
+        "supplier_lookup": (
+            {"description": "按人名/简称查供应商字符串（一个单元格）", "args": {"name": "str"}},
+            _supplier_lookup,
+        ),
+        "web_search_supplier": (
+            {"description": "在互联网上搜索品牌的供应商、代理商、经销商信息。当用户询问某个品牌的供应商，或者数据库中没有该品牌的供应商时使用。", "args": {"brand": "str"}},
+            _web_search_supplier,
+        ),
+    }
+
+    # 根据 enabled_tools 参数选择性注册工具
+    enabled_tools = request.enabled_tools if request.enabled_tools is not None else list(all_tools.keys())
+    for tool_name in enabled_tools:
+        if tool_name in all_tools:
+            spec, fn = all_tools[tool_name]
+            tools.register(tool_name, spec, fn)
 
     agent_out = run_two_stage_agent(
         call_llm=call_llm,

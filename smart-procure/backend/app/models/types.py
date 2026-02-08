@@ -9,6 +9,7 @@ class ChatRequest(BaseModel):
     message: str
     current_sheet_data: Optional[List[List[Any]]] = None
     chat_history: Optional[List[ChatHistoryMessage]] = None
+    enabled_tools: Optional[List[str]] = None  # 启用的工具列表，None 表示全部启用
 
 class UpdateAction(BaseModel):
     target_row: int

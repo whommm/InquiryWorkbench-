@@ -158,6 +158,17 @@ def build_planner_prompt(
 - 不要调用 get_row_slot_snapshot（相关产品列表已包含报价状态）
 - 只在需要查询供应商时调用：supplier_lookup, web_search_supplier
 
+**供应商搜索请求识别**：
+当用户的消息包含以下关键词时，应调用 web_search_supplier 工具：
+- "搜索"、"查找"、"找一下"、"帮我找"
+- "代理商"、"经销商"、"供应商"
+- "哪里买"、"哪里有卖"、"谁家有"
+
+示例：
+- "帮我搜索一下西门子的代理商" → 调用 web_search_supplier，args: {{"brand": "西门子"}}
+- "找一下FESTO的供应商" → 调用 web_search_supplier，args: {{"brand": "FESTO"}}
+- "SMC哪里有卖" → 调用 web_search_supplier，args: {{"brand": "SMC"}}
+
 ## 异常处理
 
 | 异常情况 | 处理方式 |

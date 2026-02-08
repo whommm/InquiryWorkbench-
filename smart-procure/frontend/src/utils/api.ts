@@ -47,12 +47,14 @@ export type ChatHistoryMessage = {
 export const sendChat = async (
   message: string,
   currentSheetData: unknown[][],
-  chatHistory?: ChatHistoryMessage[]
+  chatHistory?: ChatHistoryMessage[],
+  enabledTools?: string[]
 ) => {
   const response = await api.post('/chat', {
     message,
     current_sheet_data: currentSheetData,
     chat_history: chatHistory,
+    enabled_tools: enabledTools,
   });
   return response.data;
 };

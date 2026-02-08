@@ -16,7 +16,7 @@ import AuthPage from './pages/AuthPage';
 
 function App() {
   const { initializeTabs, isLoading, activeTabId, clearTabs } = useTabsStore();
-  const { sheetData, chatHistory, isThinking, isDirty, handleSendMessage, handleFileUpload, handleSheetDataChange, clearChatHistory, handleManualSave } = useProcureState();
+  const { sheetData, chatHistory, isThinking, isDirty, toolConfigs, handleSendMessage, handleFileUpload, handleSheetDataChange, clearChatHistory, handleToolToggle, handleManualSave } = useProcureState();
   const { isAuthenticated, isLoading: authLoading, loadFromStorage, logout, user } = useAuthStore();
   const [showHistory, setShowHistory] = useState(false);
   const [showSuppliers, setShowSuppliers] = useState(false);
@@ -182,6 +182,8 @@ function App() {
               onFileUpload={handleFileUpload}
               isThinking={isThinking}
               onClear={clearChatHistory}
+              toolConfigs={toolConfigs}
+              onToolToggle={handleToolToggle}
             />
           }
           right={

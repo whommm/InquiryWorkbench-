@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { initSheet, sendChat, uploadFile, saveSheet, extractSuppliersFromSheet } from '../utils/api';
 import { useTabsStore } from '../stores/useTabsStore';
+import type { ToolConfig } from '../components/ToolConfigPanel';
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
@@ -9,9 +10,18 @@ export interface ChatMessage {
 
 export type SheetData = unknown[][];
 
+// 默认工具配置
+const DEFAULT_TOOL_CONFIGS: ToolConfig[] = [
+  { id: 'locate_row', name: '行定位', description: '按物料/品牌/型号定位表格行', enabled: true },
+  { id: 'get_row_slot_snapshot', name: '槽位查询', description: '获取行的报价槽位状态', enabled: true },
+  { id: 'supplier_lookup', name: '供应商查询', description: '从数据库查询供应商信息', enabled: true },
+  { id: 'web_search_supplier', name: '网络搜索', description: '在互联网上搜索供应商信息', enabled: true },
+];
+
 export const useProcureState = () => {
   const { getActiveTab, updateTabData, activeTabId } = useTabsStore();
   const [isThinking, setIsThinking] = useState(false);
+  const [toolConfigs, setToolConfigs] = useState<ToolConfig[]>(DEFAULT_TOOL_CONFIGS);
 
   const activeTab = getActiveTab();
   const sheetData = activeTab?.sheetData || [];
@@ -59,7 +69,8 @@ export const useProcureState = () => {
 
     try {
       console.log('[Chat] 发送消息:', message);
-      const response = await sendChat(message, sheetData, nextHistory);
+      const enabledTools = toolConfigs.filter(t => t.enabled).map(t => t.id);
+      const response = await sendChat(message, sheetData, nextHistory, enabledTools);
       console.log('[Chat] 收到响应:', response);
 
       if (!response || !response.action) {
@@ -174,6 +185,12 @@ export const useProcureState = () => {
     });
   };
 
+  const handleToolToggle = (toolId: string) => {
+    setToolConfigs(prev => prev.map(tool =>
+      tool.id === toolId ? { ...tool, enabled: !tool.enabled } : tool
+    ));
+  };
+
   const handleManualSave = async (): Promise<{ success: boolean; newSupplierCount?: number }> => {
     if (!activeTabId || !activeTab) return { success: false };
 
@@ -212,10 +229,12 @@ export const useProcureState = () => {
     chatHistory,
     isThinking,
     isDirty: activeTab?.isDirty ?? false,
+    toolConfigs,
     handleSendMessage,
     handleFileUpload,
     handleSheetDataChange,
     clearChatHistory,
+    handleToolToggle,
     handleManualSave,
   };
 };
