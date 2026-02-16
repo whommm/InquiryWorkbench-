@@ -21,7 +21,6 @@ interface HistoryPanelProps {
 const HistoryPanel = ({ 
   isOpen,
   onClose,
-  onRestoreHistory,
   onClearHistory
 }: HistoryPanelProps) => {
   const [sheets, setSheets] = useState<SheetListItem[]>([]);

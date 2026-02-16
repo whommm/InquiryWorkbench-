@@ -182,23 +182,19 @@ def process_update(sheet_data: List[List[Any]], action: UpdateAction) -> List[Li
     offers.sort(key=lambda x: (x[0], x[1]))
     sorted_vals = [v for _, __, v in offers]
 
-    print(f"[DEBUG] process_update - action.price: {action.price}, type: {type(action.price)}")
     p_new = float(action.price)
-    print(f"[DEBUG] process_update - p_new after float(): {p_new}")
 
     # 先检查是否存在核心相同的报价（价格、货期、品牌相同）
     # 如果存在，则合并字段而不是插入新报价
     found_matching = False
     for i, v in enumerate(sorted_vals):
         if is_same_core_offer(v, new_offer):
-            print(f"[DEBUG] 发现核心相同的报价，执行合并而非插入")
             sorted_vals[i] = merge_offers(v, new_offer)
             found_matching = True
             break
 
     # 如果没有找到匹配的报价，则按价格排序插入
     if not found_matching:
-        print(f"[DEBUG] 未找到匹配报价，按价格插入新报价")
         out_vals: List[Dict[str, Any]] = []
         inserted = False
         for v in sorted_vals:

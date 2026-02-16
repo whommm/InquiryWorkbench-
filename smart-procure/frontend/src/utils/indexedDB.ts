@@ -19,6 +19,18 @@ export interface InquiryTab {
 const DB_NAME_PREFIX = 'SmartProcureDB_';
 const DB_VERSION = 1;
 const STORE_NAME = 'tabs';
+const DEFERRED_SAVE_DELAY_MS = 300;
+
+type PendingSaveEntry = {
+  tab: InquiryTab;
+  timerId: number | null;
+  resolvers: Array<() => void>;
+  rejectors: Array<(error: Error) => void>;
+};
+
+const pendingSaves = new Map<string, PendingSaveEntry>();
+
+const getPendingSaveKey = (userId: string, tabId: string): string => `${userId}:${tabId}`;
 
 /**
  * Get database name for a specific user
@@ -81,6 +93,86 @@ export const saveTab = async (userId: string, tab: InquiryTab): Promise<void> =>
   });
 };
 
+const flushPendingSave = async (pendingKey: string): Promise<void> => {
+  const entry = pendingSaves.get(pendingKey);
+  if (!entry) {
+    return;
+  }
+
+  if (entry.timerId !== null) {
+    window.clearTimeout(entry.timerId);
+    entry.timerId = null;
+  }
+
+  pendingSaves.delete(pendingKey);
+
+  try {
+    const [userId] = pendingKey.split(':');
+    await saveTab(userId, entry.tab);
+    entry.resolvers.forEach((resolve) => resolve());
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error('Failed to save tab');
+    entry.rejectors.forEach((reject) => reject(err));
+  }
+};
+
+/**
+ * Save tab with debounce to avoid writing large objects on every single edit.
+ */
+export const saveTabDeferred = (
+  userId: string,
+  tab: InquiryTab,
+  delayMs: number = DEFERRED_SAVE_DELAY_MS
+): Promise<void> => {
+  const pendingKey = getPendingSaveKey(userId, tab.id);
+  const existing = pendingSaves.get(pendingKey);
+
+  if (existing) {
+    existing.tab = tab;
+    if (existing.timerId !== null) {
+      window.clearTimeout(existing.timerId);
+      existing.timerId = null;
+    }
+    return new Promise((resolve, reject) => {
+      existing.resolvers.push(resolve);
+      existing.rejectors.push(reject);
+      existing.timerId = window.setTimeout(() => {
+        void flushPendingSave(pendingKey);
+      }, delayMs);
+    });
+  }
+
+  const entry: PendingSaveEntry = {
+    tab,
+    timerId: null,
+    resolvers: [],
+    rejectors: [],
+  };
+  pendingSaves.set(pendingKey, entry);
+
+  return new Promise((resolve, reject) => {
+    entry.resolvers.push(resolve);
+    entry.rejectors.push(reject);
+    entry.timerId = window.setTimeout(() => {
+      void flushPendingSave(pendingKey);
+    }, delayMs);
+  });
+};
+
+/**
+ * Flush all pending tab saves. Useful before destructive actions (delete/clear/logout).
+ */
+export const flushAllPendingTabSaves = async (userId?: string): Promise<void> => {
+  const keys = Array.from(pendingSaves.keys()).filter((key) => {
+    if (!userId) return true;
+    return key.startsWith(`${userId}:`);
+  });
+
+  for (const key of keys) {
+    await flushPendingSave(key);
+  }
+};
+
 /**
  * Get a single tab by ID
  */
@@ -138,6 +230,7 @@ export const getAllTabs = async (userId: string): Promise<InquiryTab[]> => {
  * Delete a tab by ID
  */
 export const deleteTab = async (userId: string, id: string): Promise<void> => {
+  await flushAllPendingTabSaves(userId);
   const db = await openDB(userId);
 
   return new Promise((resolve, reject) => {
@@ -163,6 +256,7 @@ export const deleteTab = async (userId: string, id: string): Promise<void> => {
  * Clear all tabs
  */
 export const clearAllTabs = async (userId: string): Promise<void> => {
+  await flushAllPendingTabSaves(userId);
   const db = await openDB(userId);
 
   return new Promise((resolve, reject) => {

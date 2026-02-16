@@ -20,7 +20,7 @@ interface SupplierPanelProps {
   selectedRow?: number | null;
 }
 
-const SupplierPanel = ({ isOpen, onClose, selectedRow }: SupplierPanelProps) => {
+const SupplierPanel = ({ isOpen, onClose }: SupplierPanelProps) => {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
 
   const [loading, setLoading] = useState(true);

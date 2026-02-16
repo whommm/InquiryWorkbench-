@@ -1,8 +1,32 @@
 import json
+import logging
+import threading
+import uuid
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
 ToolFn = Callable[[Dict[str, Any]], Dict[str, Any]]
+logger = logging.getLogger(__name__)
+
+_TOOL_METRICS_LOCK = threading.Lock()
+_TOOL_METRICS = {
+    "total_calls": 0,
+    "success_calls": 0,
+    "failed_calls": 0,
+}
+
+
+def _record_tool_metric(name: str, amount: int = 1) -> None:
+    with _TOOL_METRICS_LOCK:
+        _TOOL_METRICS[name] = _TOOL_METRICS.get(name, 0) + amount
+
+
+def get_tool_runtime_stats() -> Dict[str, Any]:
+    with _TOOL_METRICS_LOCK:
+        stats = dict(_TOOL_METRICS)
+    total = stats.get("total_calls", 0)
+    stats["success_rate"] = round((stats.get("success_calls", 0) / total), 4) if total else 0.0
+    return stats
 
 
 class ToolRegistry:
@@ -16,14 +40,18 @@ class ToolRegistry:
         return [{"name": n, **spec} for n, (spec, _) in self._tools.items()]
 
     def execute(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        _record_tool_metric("total_calls")
         item = self._tools.get(name)
         if not item:
+            _record_tool_metric("failed_calls")
             return {"ok": False, "tool": name, "error": f"unknown tool: {name}"}
-        spec, fn = item
+        _, fn = item
         try:
             result = fn(args or {})
+            _record_tool_metric("success_calls")
             return {"ok": True, "tool": name, "result": result}
         except Exception as e:
+            _record_tool_metric("failed_calls")
             return {"ok": False, "tool": name, "error": str(e)}
 
 
@@ -381,7 +409,7 @@ Planner草稿（JSON）：{draft_json}
 
 def run_two_stage_agent(
     *,
-    call_llm: Callable[[str, str, Optional[List[Dict[str, Any]]]], str],
+    call_llm: Callable[..., str],
     user_message: str,
     history_messages: Optional[List[Dict[str, Any]]],
     context: Dict[str, str],
@@ -391,8 +419,9 @@ def run_two_stage_agent(
     tools_catalog_json = json.dumps(tools.describe(), ensure_ascii=False)
     tool_results: List[Dict[str, Any]] = []
     draft: Dict[str, Any] = {}
+    request_id = uuid.uuid4().hex[:12]
 
-    for _ in range(max_tool_steps + 1):
+    for step_idx in range(max_tool_steps + 1):
         planner_prompt = build_planner_prompt(
             sheet_state_summary=context["sheet_state_summary"],
             pending_items_summary=context["pending_items_summary"],
@@ -405,11 +434,21 @@ def run_two_stage_agent(
             tools_catalog_json=tools_catalog_json,
             tool_results_json=_tool_results_block(tool_results),
         )
-        planner_out_str = call_llm(planner_prompt, user_message, history_messages)
-        import logging
-        logging.warning(f"[DEBUG] Planner LLM 响应: {planner_out_str[:500]}...")
+        planner_out_str = call_llm(
+            planner_prompt,
+            user_message,
+            history_messages,
+            request_id=request_id,
+            step=f"planner_{step_idx + 1}",
+        )
+        logger.warning("[DEBUG] Planner LLM 响应: %s...", planner_out_str[:500])
         planner_out = _safe_json_loads(planner_out_str) or {}
-        logging.warning(f"[DEBUG] Planner 解析结果: action={planner_out.get('action')}, tool={planner_out.get('tool')}")
+        logger.warning(
+            "[DEBUG] Planner 解析结果: request_id=%s action=%s tool=%s",
+            request_id,
+            planner_out.get("action"),
+            planner_out.get("tool"),
+        )
 
         action = planner_out.get("action")
         if action == "ASK":
@@ -423,7 +462,7 @@ def run_two_stage_agent(
             if not isinstance(args, dict):
                 args = {}
             tool_result = tools.execute(tool_name.strip(), args)
-            logging.warning(f"[DEBUG] 工具执行结果: {str(tool_result)[:500]}")
+            logger.warning("[DEBUG] 工具执行结果: request_id=%s %s", request_id, str(tool_result)[:500])
             tool_results.append(tool_result)
             continue
 
@@ -447,7 +486,13 @@ def run_two_stage_agent(
         tool_results_json=_tool_results_block(tool_results),
         draft_json=json.dumps(draft, ensure_ascii=False),
     )
-    writer_out_str = call_llm(writer_prompt, user_message, history_messages)
+    writer_out_str = call_llm(
+        writer_prompt,
+        user_message,
+        history_messages,
+        request_id=request_id,
+        step="writer",
+    )
     writer_out = _safe_json_loads(writer_out_str) or {}
     w_action = writer_out.get("action")
     if w_action == "ASK":

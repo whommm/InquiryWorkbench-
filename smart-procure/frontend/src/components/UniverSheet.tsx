@@ -68,6 +68,28 @@ const UniverSheet: React.FC<UniverSheetProps> = ({
   const isUserEditRef = useRef(false); // 标记数据变化是否来自用户编辑
   const changeListenerDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const selectionListenerDisposableRef = useRef<{ dispose: () => void } | null>(null);
+  const pendingUserChangeRef = useRef<unknown[][] | null>(null);
+  const userChangeTimerRef = useRef<number | null>(null);
+
+  const flushUserDataChange = useCallback(() => {
+    const next = pendingUserChangeRef.current;
+    if (!next) return;
+    pendingUserChangeRef.current = null;
+    onDataChangeRef.current?.(next);
+  }, []);
+
+  const scheduleUserDataChange = useCallback((next: unknown[][]) => {
+    pendingUserChangeRef.current = next;
+    if (userChangeTimerRef.current !== null) {
+      window.clearTimeout(userChangeTimerRef.current);
+      userChangeTimerRef.current = null;
+    }
+    // Merge high-frequency edits to avoid expensive full-state writes on each keystroke.
+    userChangeTimerRef.current = window.setTimeout(() => {
+      userChangeTimerRef.current = null;
+      flushUserDataChange();
+    }, 150);
+  }, [flushUserDataChange]);
 
   const writeDataToActiveSheet = useCallback((univerAPI: ReturnType<typeof FUniver.newAPI>, next: unknown[][]) => {
     const rowCount = Math.max(next.length, 20);
@@ -323,7 +345,6 @@ const UniverSheet: React.FC<UniverSheetProps> = ({
             // 格式: {"cellValue":{"5":{"2":{"v":"1",...}}}} 表示行5列2的值
             if (isMutationSetValues && params?.cellValue) {
               const cellValue = params.cellValue as Record<string, Record<string, { v?: unknown; f?: string }>>;
-              const rowKeys = Object.keys(cellValue).map(Number).sort((a, b) => a - b);
 
               const next = [...latestDataRef.current.map(row => [...row])];
 
@@ -360,7 +381,7 @@ const UniverSheet: React.FC<UniverSheetProps> = ({
 
               latestDataRef.current = next;
               isUserEditRef.current = true;
-              onDataChangeRef.current?.(next);
+              scheduleUserDataChange(next);
             }
           });
           changeListenerDisposableRef.current = disposable;
@@ -457,6 +478,12 @@ const UniverSheet: React.FC<UniverSheetProps> = ({
           readyPollTimerRef.current = null;
         }
 
+        if (userChangeTimerRef.current !== null) {
+          window.clearTimeout(userChangeTimerRef.current);
+          userChangeTimerRef.current = null;
+        }
+        flushUserDataChange();
+
         if (changeListenerDisposableRef.current) {
           try {
             changeListenerDisposableRef.current.dispose();
@@ -503,7 +530,7 @@ const UniverSheet: React.FC<UniverSheetProps> = ({
             }, 0);
         }
     };
-  }, [applyRangeToData, writeDataToActiveSheet]);
+  }, [applyRangeToData, writeDataToActiveSheet, flushUserDataChange, scheduleUserDataChange]);
 
   useEffect(() => {
     onDataChangeRef.current = onChange;

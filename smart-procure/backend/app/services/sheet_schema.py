@@ -2,8 +2,6 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 from difflib import SequenceMatcher
 
-from ..models.columns import BASIC_COLS
-
 
 def normalize_header(text: Any) -> str:
     if text is None:
@@ -43,33 +41,6 @@ ITEM_BRAND_COL_SYNONYMS = ["品牌", "牌", "品牌名称"]
 ITEM_MODEL_COL_SYNONYMS = ["产品型号", "型号", "物料型号", "规格型号", "产品编码", "物料编码", "料号", "型号/编码", "规格型号/编码"]
 
 
-def _best_header_index(headers: List[Any], candidates: List[str]) -> Optional[int]:
-    norm_headers = [normalize_header(h) for h in headers]
-    candidate_norm = [normalize_header(c) for c in candidates]
-    for c in candidate_norm:
-        for i, h in enumerate(norm_headers):
-            if not h:
-                continue
-            if h == c:
-                return i
-    for c in candidate_norm:
-        for i, h in enumerate(norm_headers):
-            if not h:
-                continue
-            if c and (c in h or h in c):
-                return i
-    return None
-
-
-def infer_item_columns(headers: List[Any]) -> Dict[str, Optional[int]]:
-    return {
-        "name": _best_header_index(headers, ITEM_NAME_COL_SYNONYMS),
-        "spec": _best_header_index(headers, ITEM_SPEC_COL_SYNONYMS),
-        "brand": _best_header_index(headers, ITEM_BRAND_COL_SYNONYMS),
-        "model": _best_header_index(headers, ITEM_MODEL_COL_SYNONYMS),
-    }
-
-
 def _detect_slot_suffix(norm_header: str) -> Tuple[str, Optional[int]]:
     m = re.match(r"^(.*?)(\d+)$", norm_header)
     if not m:
@@ -98,6 +69,70 @@ def _canonical_field_from_base(base: str) -> Optional[str]:
     return None
 
 
+def _is_slot_header(norm_header: str) -> bool:
+    base, suffix = _detect_slot_suffix(norm_header)
+    if not isinstance(suffix, int):
+        return False
+    return _canonical_field_from_base(base) is not None
+
+
+def _best_header_index(
+    headers: List[Any], candidates: List[str], exclude_slot_headers: bool = False
+) -> Optional[int]:
+    norm_headers = [normalize_header(h) for h in headers]
+    candidate_norm = [normalize_header(c) for c in candidates]
+
+    # Prefer exact matches first.
+    for c in candidate_norm:
+        for i, h in enumerate(norm_headers):
+            if not h:
+                continue
+            if exclude_slot_headers and _is_slot_header(h):
+                continue
+            if h == c:
+                return i
+
+    # Then allow inclusive/partial matches.
+    for c in candidate_norm:
+        for i, h in enumerate(norm_headers):
+            if not h:
+                continue
+            if exclude_slot_headers and _is_slot_header(h):
+                continue
+            if c and (c in h or h in c):
+                return i
+    return None
+
+
+def infer_item_columns(headers: List[Any]) -> Dict[str, Optional[int]]:
+    cols = {
+        "name": _best_header_index(
+            headers, ITEM_NAME_COL_SYNONYMS, exclude_slot_headers=True
+        ),
+        "spec": _best_header_index(
+            headers, ITEM_SPEC_COL_SYNONYMS, exclude_slot_headers=True
+        ),
+        "brand": _best_header_index(
+            headers, ITEM_BRAND_COL_SYNONYMS, exclude_slot_headers=True
+        ),
+        "model": _best_header_index(
+            headers, ITEM_MODEL_COL_SYNONYMS, exclude_slot_headers=True
+        ),
+    }
+
+    # Fallback for legacy/irregular templates where base columns are incomplete.
+    for key, synonyms in (
+        ("name", ITEM_NAME_COL_SYNONYMS),
+        ("spec", ITEM_SPEC_COL_SYNONYMS),
+        ("brand", ITEM_BRAND_COL_SYNONYMS),
+        ("model", ITEM_MODEL_COL_SYNONYMS),
+    ):
+        if cols[key] is None:
+            cols[key] = _best_header_index(headers, synonyms, exclude_slot_headers=False)
+
+    return cols
+
+
 def build_sheet_schema(sheet_data: Optional[List[List[Any]]]) -> Dict[str, Any]:
     """
     构建表格schema - 使用固定位置模式
@@ -117,30 +152,39 @@ def build_sheet_schema(sheet_data: Optional[List[List[Any]]]) -> Dict[str, Any]:
         if nh and nh not in header_index:
             header_index[nh] = idx
 
-    # 固定位置模式：前5列为基础列
-    BASIC_COLS_COUNT = 5
+    # 识别基础列（优先排除槽位字段）
+    item_cols = infer_item_columns(headers)
 
-    # 识别基础列（通过字段名匹配）
-    item_cols = infer_item_columns(headers[:BASIC_COLS_COUNT])
-
-    # 从第6列开始，每7列为一个报价槽位
-    SLOT_SIZE = 7
-    SLOT_START = BASIC_COLS_COUNT
-
-    # 槽位内的固定顺序
-    SLOT_FIELDS = ["品牌", "单价", "含税", "含运", "货期", "备注", "供应商"]
-
+    # 优先按“字段名+槽位号”识别（兼容列顺序变化与表头别名）
     slots: Dict[int, Dict[str, int]] = {}
-    slot_num = 1
-    col_idx = SLOT_START
+    for idx, h in enumerate(headers):
+        nh = normalize_header(h)
+        if not nh:
+            continue
+        base, slot_num = _detect_slot_suffix(nh)
+        if not isinstance(slot_num, int):
+            continue
+        canonical = _canonical_field_from_base(base)
+        if not canonical:
+            continue
+        slot = slots.setdefault(slot_num, {})
+        slot[canonical] = idx
 
-    while col_idx + SLOT_SIZE <= len(headers):
-        slot_mapping = {}
-        for i, field in enumerate(SLOT_FIELDS):
-            slot_mapping[field] = col_idx + i
-        slots[slot_num] = slot_mapping
-        slot_num += 1
-        col_idx += SLOT_SIZE
+    # 兼容旧模板：若无后缀槽位，回退固定分组。
+    if not slots and headers:
+        basic_cols_count = 5
+        slot_size = 7
+        slot_start = basic_cols_count
+        slot_fields = ["品牌", "备注", "单价", "含税", "含运", "货期", "供应商"]
+        slot_num = 1
+        col_idx = slot_start
+        while col_idx + slot_size <= len(headers):
+            slot_mapping: Dict[str, int] = {}
+            for i, field in enumerate(slot_fields):
+                slot_mapping[field] = col_idx + i
+            slots[slot_num] = slot_mapping
+            slot_num += 1
+            col_idx += slot_size
 
     return {
         "headers": headers,

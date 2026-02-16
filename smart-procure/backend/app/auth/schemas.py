@@ -24,6 +24,7 @@ class UserResponse(BaseModel):
     id: str
     username: str
     display_name: Optional[str]
+    role: Optional[str] = "user"
     created_at: datetime
 
     class Config:

@@ -83,3 +83,20 @@ async def get_current_user(
         raise credentials_exception
 
     return user
+
+
+def is_admin_user(user: User) -> bool:
+    """Return whether the user has admin privileges."""
+    return bool(user and isinstance(user.role, str) and user.role.lower() == "admin")
+
+
+async def require_admin_user(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Require an authenticated admin user."""
+    if not is_admin_user(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="权限不足，需要管理员权限",
+        )
+    return current_user

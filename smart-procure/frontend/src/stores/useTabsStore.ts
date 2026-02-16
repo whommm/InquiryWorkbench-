@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import type { InquiryTab } from '../utils/indexedDB';
-import { saveTab, getAllTabs, deleteTab } from '../utils/indexedDB';
+import { saveTab, getAllTabs, deleteTab, saveTabDeferred, flushAllPendingTabSaves } from '../utils/indexedDB';
 
 interface TabsState {
   tabs: InquiryTab[];
@@ -202,7 +202,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
     // Persist to IndexedDB
     const updatedTab = updatedTabs.find(t => t.id === tabId);
     if (updatedTab) {
-      await saveTab(userId, updatedTab);
+      void saveTabDeferred(userId, updatedTab);
     }
   },
 
@@ -218,6 +218,10 @@ export const useTabsStore = create<TabsState>((set, get) => ({
    * Clear all tabs (used when user logs out or switches)
    */
   clearTabs: () => {
+    const currentUserId = get().userId;
+    if (currentUserId) {
+      void flushAllPendingTabSaves(currentUserId);
+    }
     set({ tabs: [], activeTabId: null, userId: null });
   },
 }));

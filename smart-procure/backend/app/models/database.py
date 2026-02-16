@@ -4,7 +4,6 @@ Database models for SmartProcure
 from sqlalchemy import create_engine, Column, String, Integer, Float, DateTime, JSON, ForeignKey, Text, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.dialects.postgresql import UUID
 from datetime import datetime
 import os
 import uuid
@@ -28,6 +27,7 @@ class User(Base):
     username = Column(String(50), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
     display_name = Column(String(100))
+    role = Column(String(20), nullable=False, default="user", server_default="user", index=True)
 
     # 时间戳
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -101,9 +101,64 @@ class SupplierProduct(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class Notification(Base):
+    """Notification model for user messages"""
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    message = Column(Text, nullable=False)
+    type = Column(String(20), nullable=False, default="info", server_default="info")
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+def _ensure_legacy_columns():
+    """
+    Ensure newly added columns exist on legacy databases.
+    Keep this minimal and idempotent.
+    """
+    try:
+        with engine.begin() as conn:
+            dialect = conn.dialect.name
+            if dialect == "postgresql":
+                conn.execute(
+                    text("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) NOT NULL DEFAULT 'user'")
+                )
+                conn.execute(
+                    text("CREATE INDEX IF NOT EXISTS ix_users_role ON users (role)")
+                )
+                return
+
+            if dialect == "sqlite":
+                rows = conn.exec_driver_sql("PRAGMA table_info(users)").fetchall()
+                columns = {r[1] for r in rows}
+                if "role" not in columns:
+                    conn.exec_driver_sql(
+                        "ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'user'"
+                    )
+                conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_users_role ON users (role)")
+                return
+
+            # Generic fallback for other SQL dialects
+            try:
+                conn.execute(
+                    text("ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'user'")
+                )
+            except Exception:
+                pass
+            try:
+                conn.execute(text("CREATE INDEX ix_users_role ON users (role)"))
+            except Exception:
+                pass
+    except Exception:
+        # Never block startup on best-effort compatibility patching.
+        pass
+
+
 def init_db():
     """Initialize database tables"""
     Base.metadata.create_all(bind=engine)
+    _ensure_legacy_columns()
 
 
 def get_db():

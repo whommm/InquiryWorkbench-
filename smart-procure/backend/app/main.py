@@ -3,7 +3,13 @@ import os
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from .api import routes
+from .api import (
+    routes,
+    admin_router,
+    notifications_router,
+    sheets_router,
+    suppliers_router,
+)
 from .auth import auth_router
 from .models.columns import HEADERS
 from .models.database import init_db
@@ -37,6 +43,10 @@ app.add_middleware(
 )
 
 app.include_router(routes.router, prefix="/api")
+app.include_router(admin_router, prefix="/api")
+app.include_router(notifications_router, prefix="/api")
+app.include_router(sheets_router, prefix="/api")
+app.include_router(suppliers_router, prefix="/api")
 app.include_router(auth_router)
 
 

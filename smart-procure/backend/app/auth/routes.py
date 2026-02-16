@@ -27,7 +27,8 @@ async def register(user_data: UserRegister, db: Session = Depends(get_db)):
     new_user = User(
         username=user_data.username,
         password_hash=get_password_hash(user_data.password),
-        display_name=user_data.display_name or user_data.username
+        display_name=user_data.display_name or user_data.username,
+        role="user",
     )
 
     db.add(new_user)
