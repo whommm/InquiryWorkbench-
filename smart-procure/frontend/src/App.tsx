@@ -97,6 +97,7 @@ function App() {
 
   // Handle row click from UniverSheet
   const handleRowClick = (rowIndex: number) => {
+    console.log('[App] handleRowClick called with rowIndex:', rowIndex);
     setSelectedRow(rowIndex);
   };
 
@@ -129,28 +130,19 @@ function App() {
       showChat={showChat}
       onToggleChat={() => setShowChat(!showChat)}
       showRightPanel={showRecommend}
-      onToggleRightPanel={() => setShowRecommend(!showRecommend)}
-      rightPanel={
-        <RecommendPanel
-          isOpen={showRecommend}
-          onClose={() => setShowRecommend(false)}
-          selectedRow={selectedRow}
-          sheetData={sheetData}
-        />
-      }
       sidebarContent={
-        <div className="flex flex-col h-full bg-gray-50 border-r border-gray-200">
-          <TabBar 
-            onHistoryClick={() => setShowHistory(true)} 
+        <div className="w-16 flex-shrink-0 flex flex-col h-full bg-gray-50 border-r border-gray-200">
+          <TabBar
+            onHistoryClick={() => setShowHistory(true)}
             onSupplierClick={() => setShowSuppliers(true)}
-            onRecommendClick={() => setShowRecommend(true)}
+            onRecommendClick={() => setShowRecommend(!showRecommend)}
           />
         </div>
       }
       mainContent={
         <div className="h-full relative flex flex-col bg-white">
-          <UniverSheet 
-            data={sheetData} 
+          <UniverSheet
+            data={sheetData}
             onChange={handleSheetDataChange}
             onRowClick={handleRowClick}
             isDirty={isDirty}
@@ -158,10 +150,10 @@ function App() {
             isSaving={isSaving}
           />
           {toast && (
-            <Toast 
-              message={toast.message} 
-              type={toast.type} 
-              onClose={() => setToast(null)} 
+            <Toast
+              message={toast.message}
+              type={toast.type}
+              onClose={() => setToast(null)}
             />
           )}
           <Toaster position="top-center" richColors />
@@ -175,13 +167,20 @@ function App() {
           onFileUpload={handleFileUpload}
           toolConfigs={toolConfigs}
           onToolToggle={handleToolToggle}
-          onClearHistory={clearChatHistory}
-          onCollapse={() => setShowChat(false)}
+        />
+      }
+      rightPanel={
+        <RecommendPanel
+          isOpen={showRecommend}
+          onClose={() => setShowRecommend(false)}
+          activeTabId={activeTabId}
+          selectedRow={selectedRow}
+          sheetData={sheetData}
         />
       }
     >
-      <HistoryPanel 
-        isOpen={showHistory} 
+      <HistoryPanel
+        isOpen={showHistory}
         onClose={() => setShowHistory(false)}
         onRestoreHistory={(history) => {
           // TODO: implement history restore

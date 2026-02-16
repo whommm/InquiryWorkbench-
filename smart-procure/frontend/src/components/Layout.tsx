@@ -9,7 +9,6 @@ interface LayoutProps {
   chatPanel: React.ReactNode;
   rightPanel?: React.ReactNode;
   showRightPanel?: boolean;
-  onToggleRightPanel?: () => void;
   children?: React.ReactNode;
 }
 
@@ -21,7 +20,6 @@ const Layout: React.FC<LayoutProps> = ({
   chatPanel,
   rightPanel,
   showRightPanel = false,
-  onToggleRightPanel,
   children
 }) => {
   const minChatWidth = 360;
@@ -34,32 +32,6 @@ const Layout: React.FC<LayoutProps> = ({
   const isDraggingRef = useRef(false);
   const dragStartXRef = useRef(0);
   const dragStartWidthRef = useRef(0);
-
-  // 动画状态管理
-  const [chatLayoutWidth, setChatLayoutWidth] = useState(showChat ? chatWidth : 0);
-  const [rightLayoutWidth, setRightLayoutWidth] = useState(showRightPanel ? 400 : 0);
-
-  // 聊天面板动画
-  useEffect(() => {
-    if (showChat) {
-      // 展开：立即设置宽度
-      setChatLayoutWidth(chatWidth);
-    } else {
-      // 折叠：动画结束后再设置宽度为0
-      const timer = setTimeout(() => setChatLayoutWidth(0), 200);
-      return () => clearTimeout(timer);
-    }
-  }, [showChat, chatWidth]);
-
-  // 右侧面板动画
-  useEffect(() => {
-    if (showRightPanel) {
-      setRightLayoutWidth(400);
-    } else {
-      const timer = setTimeout(() => setRightLayoutWidth(0), 200);
-      return () => clearTimeout(timer);
-    }
-  }, [showRightPanel]);
 
   useEffect(() => {
     const handlePointerMove = (e: PointerEvent) => {
@@ -106,29 +78,16 @@ const Layout: React.FC<LayoutProps> = ({
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* Left Sidebar (Navigation) */}
-        <div className="w-16 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col items-center py-4 z-20">
-           {sidebarContent}
-        </div>
+        {sidebarContent}
 
         {/* Chat Panel (Collapsible) */}
-        <div
-          className="h-full bg-white shadow-xl z-10 flex flex-col relative border-r border-gray-200"
-          style={{
-            width: chatLayoutWidth,
-            flexShrink: 0,
-            overflow: 'hidden'
-          }}
+        <div 
+          className={`h-full bg-white shadow-xl z-10 transition-all duration-300 ease-in-out flex flex-col relative border-r border-gray-200 ${
+            !showChat ? 'w-0 opacity-0 overflow-hidden' : 'opacity-100'
+          }`}
+          style={{ width: !showChat ? 0 : `${chatWidth}px` }}
         >
-          <div
-            style={{
-              width: chatWidth,
-              height: '100%',
-              transform: showChat ? 'translateX(0)' : 'translateX(-100%)',
-              transition: 'transform 0.2s ease-out'
-            }}
-          >
-            {chatPanel}
-          </div>
+          {chatPanel}
           
           {/* Resize Handle */}
           {showChat && (
@@ -161,25 +120,14 @@ const Layout: React.FC<LayoutProps> = ({
           </div>
         </div>
 
-        {/* Right Panel (Recommend Panel - Collapsible) */}
+        {/* Right Panel (Recommend - Collapsible) */}
         <div
-          className="h-full bg-white shadow-xl z-10 flex flex-col relative border-l border-gray-200"
-          style={{
-            width: rightLayoutWidth,
-            flexShrink: 0,
-            overflow: 'hidden'
-          }}
+          className={`h-full bg-white shadow-xl z-10 transition-all duration-300 ease-in-out flex flex-col relative border-l border-gray-200 ${
+            !showRightPanel ? 'w-0 opacity-0 overflow-hidden' : 'opacity-100'
+          }`}
+          style={{ width: !showRightPanel ? 0 : '360px' }}
         >
-          <div
-            style={{
-              width: 400,
-              height: '100%',
-              transform: showRightPanel ? 'translateX(0)' : 'translateX(100%)',
-              transition: 'transform 0.2s ease-out'
-            }}
-          >
-            {rightPanel}
-          </div>
+          {rightPanel}
         </div>
       </div>
       

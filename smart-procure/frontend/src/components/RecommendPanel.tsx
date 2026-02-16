@@ -149,26 +149,19 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
     }
   };
 
-  const renderStars = (rating: number) => {
-    return '⭐'.repeat(rating);
-  };
-
   if (!isOpen) return null;
 
   return (
     <div className="flex flex-col h-full bg-white">
-      {/* Header */}
-      <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 shrink-0">
+      {/* 头部 */}
+      <div className="p-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="p-1.5 bg-purple-100 text-purple-600 rounded-lg">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z" />
             </svg>
           </div>
-          <div>
-            <h2 className="text-sm font-semibold text-gray-900">智能推荐</h2>
-            <p className="text-xs text-gray-500">基于历史数据匹配</p>
-          </div>
+          <span className="font-semibold text-gray-700 text-sm">智能推荐</span>
         </div>
         <button
           onClick={onClose}
@@ -179,9 +172,9 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
           </svg>
         </button>
       </div>
-        
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4 bg-gray-50/30">
+
+      {/* 内容区域 */}
+      <div className="flex-1 overflow-y-auto p-3">
         {selectedRow === null ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-500 py-8">
             <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mb-3 text-gray-400">
@@ -190,21 +183,21 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
               </svg>
             </div>
             <p className="text-sm font-medium text-gray-700">请选择一行数据</p>
-            <p className="text-xs text-gray-400 mt-1 text-center">点击表格中的任意行<br/>系统将为您推荐供应商</p>
+            <p className="text-xs text-gray-400 mt-1 text-center">点击表格中的任意行<br/>系统将为您推荐合适的供应商</p>
           </div>
         ) : productInfo ? (
-          <div className="mb-4 bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
-            <h3 className="font-medium text-gray-900 mb-2 flex items-center gap-2 text-sm">
+          <div className="mb-3 bg-purple-50 p-3 rounded-lg border border-purple-100">
+            <h3 className="font-medium text-gray-900 text-xs mb-2 flex items-center gap-1">
               <span className="w-1 h-3 bg-purple-500 rounded-full"></span>
               当前选中产品
             </h3>
-            <div className="space-y-2 text-xs">
-              <div className="flex justify-between">
-                <span className="text-gray-500">产品名称</span>
-                <span className="font-medium text-gray-900 text-right max-w-[60%] truncate">{productInfo.name || '-'}</span>
+            <div className="space-y-1 text-xs">
+              <div className="flex">
+                <span className="text-gray-500 w-16 flex-shrink-0">名称:</span>
+                <span className="font-medium text-gray-900 truncate">{productInfo.name || '-'}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">品牌要求</span>
+              <div className="flex">
+                <span className="text-gray-500 w-16 flex-shrink-0">品牌:</span>
                 <span className="font-medium text-gray-900">{productInfo.brand || '-'}</span>
               </div>
             </div>
@@ -219,7 +212,7 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
             </div>
           </div>
         ) : error ? (
-          <div className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-lg flex items-center gap-2 text-sm">
+          <div className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-lg flex items-center gap-2 text-xs">
             <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
@@ -227,18 +220,18 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
           </div>
         ) : recommendations.length > 0 ? (
           <div className="space-y-3">
-            <h3 className="font-medium text-gray-900 flex items-center gap-2 text-sm">
+            <h3 className="font-medium text-gray-900 text-xs flex items-center gap-1">
               <span className="w-1 h-3 bg-emerald-500 rounded-full"></span>
               推荐供应商 ({recommendations.length})
             </h3>
-            <div className="space-y-3">
+            <div className="space-y-2">
               {recommendations.map((rec) => (
                 <div key={rec.supplier_id} className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
                   <div className="flex justify-between items-start mb-2">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-1.5 mb-1">
                         <h4 className="font-semibold text-sm text-gray-900 truncate">{rec.company_name}</h4>
-                        <span className={`px-1.5 py-0.5 rounded text-xs font-medium shrink-0 ${
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0 ${
                           rec.rank === 1 ? 'bg-yellow-100 text-yellow-800' :
                           rec.rank <= 3 ? 'bg-blue-100 text-blue-800' :
                           'bg-gray-100 text-gray-600'
@@ -246,47 +239,48 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
                           #{rec.rank}
                         </span>
                       </div>
-                      <div className="flex items-center gap-3 text-xs text-gray-500">
-                        <span>{rec.contact_name || '-'}</span>
-                        <span>{rec.contact_phone || '-'}</span>
+                      <div className="flex items-center gap-2 text-[11px] text-gray-500">
+                        <span>{rec.contact_name || '未填写'}</span>
+                        <span>·</span>
+                        <span>{rec.contact_phone || '未填写'}</span>
                       </div>
                     </div>
-                    <div className="text-right shrink-0 ml-2">
-                      <div className="text-lg font-bold text-emerald-600">
+                    <div className="text-right flex-shrink-0 ml-2">
+                      <div className="text-base font-bold text-emerald-600">
                         ¥{(rec.avg_price ?? 0).toLocaleString()}
                       </div>
-                      <div className="text-xs text-gray-400">
+                      <div className="text-[10px] text-gray-400">
                         {rec.quote_count ?? 0}次报价
                       </div>
                     </div>
                   </div>
 
                   {rec.brands && rec.brands.length > 0 && (
-                    <div className="flex gap-1 flex-wrap mt-2">
+                    <div className="flex gap-1 flex-wrap mb-2">
                       {rec.brands.slice(0, 3).map((brand, i) => (
-                        <span key={i} className="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
+                        <span key={i} className="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px]">
                           {brand}
                         </span>
                       ))}
                       {rec.brands.length > 3 && (
-                        <span className="text-xs text-gray-400">+{rec.brands.length - 3}</span>
+                        <span className="text-[10px] text-gray-400">+{rec.brands.length - 3}</span>
                       )}
                     </div>
                   )}
+
+                  <div className="pt-2 border-t border-gray-100 flex justify-between items-center">
+                    <p className="text-[11px] text-gray-500 italic truncate max-w-[180px]">
+                      "{rec.last_quote_text || '-'}"
+                    </p>
+                    <span className="text-[10px] text-yellow-500">
+                      ⭐ {(rec.star_rating ?? 0).toFixed(1)}
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center h-32 text-gray-500 bg-white rounded-lg border border-gray-200 border-dashed">
-            <div className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center mb-2 text-gray-400">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <p className="text-xs">暂无推荐</p>
-          </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

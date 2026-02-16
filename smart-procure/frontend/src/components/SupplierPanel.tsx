@@ -28,8 +28,10 @@ const SupplierPanel = ({ isOpen, onClose, selectedRow }: SupplierPanelProps) => 
   const [isSearching, setIsSearching] = useState(false);
 
   useEffect(() => {
-    loadSuppliers();
-  }, []);
+    if (isOpen) {
+      loadSuppliers();
+    }
+  }, [isOpen]);
 
   const loadSuppliers = async () => {
     try {
@@ -76,6 +78,10 @@ const SupplierPanel = ({ isOpen, onClose, selectedRow }: SupplierPanelProps) => 
     }
   };
 
+  const filteredSuppliers = searchQuery
+    ? suppliers
+    : suppliers;
+
   if (!isOpen) return null;
 
   return (
@@ -104,27 +110,31 @@ const SupplierPanel = ({ isOpen, onClose, selectedRow }: SupplierPanelProps) => 
           </button>
         </div>
 
-
         {/* Search */}
-        <div className="px-6 py-3 border-b border-gray-200 flex gap-2">
-          <input
-            type="text"
-            placeholder="搜索供应商（公司名称、联系人、电话）..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-            className="flex-1 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+        <div className="px-6 py-4 border-b border-gray-100 flex gap-3 bg-white">
+          <div className="relative flex-1">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              type="text"
+              placeholder="搜索供应商（公司名称、联系人、电话）..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+              className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-sm"
+            />
+          </div>
           <button
             onClick={handleSearch}
             disabled={isSearching}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-gray-400"
+            className="px-4 py-2 text-sm bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 disabled:bg-gray-400 transition-colors"
           >
             {isSearching ? '搜索中...' : '搜索'}
           </button>
           <button
             onClick={loadSuppliers}
-            className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+            className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors"
           >
             重置
           </button>
@@ -134,58 +144,37 @@ const SupplierPanel = ({ isOpen, onClose, selectedRow }: SupplierPanelProps) => 
         <div className="flex-1 overflow-y-auto px-6 py-4">
           {loading ? (
             <div className="text-center text-gray-500 py-8">加载中...</div>
-          ) : suppliers.length === 0 ? (
+          ) : filteredSuppliers.length === 0 ? (
             <div className="text-center text-gray-500 py-8">
               {searchQuery ? '没有找到匹配的供应商' : '暂无供应商数据'}
             </div>
           ) : (
             <div className="space-y-3">
-              {suppliers.map((supplier) => (
+              {filteredSuppliers.map((supplier) => (
                 <div
                   key={supplier.id}
                   className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors"
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
-                      <h3 className="font-medium text-gray-900 text-lg">
-                        {supplier.company_name}
-                      </h3>
-                      <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm text-gray-600">
-                        <div>
-                          <span className="font-medium">联系人：</span>
-                          {supplier.contact_name || '未填写'}
+                      <h3 className="font-medium text-gray-900">{supplier.company_name}</h3>
+                      <div className="mt-1 text-sm text-gray-500 space-y-1">
+                        <div className="flex gap-4">
+                          <span>联系人: {supplier.contact_name || '未填写'}</span>
+                          <span>电话: {supplier.contact_phone}</span>
                         </div>
-                        <div>
-                          <span className="font-medium">电话：</span>
-                          {supplier.contact_phone}
-                        </div>
-                        <div>
-                          <span className="font-medium">报价次数：</span>
-                          {supplier.quote_count} 次
-                        </div>
-                        <div>
-                          <span className="font-medium">最后报价：</span>
-                          {supplier.last_quote_date
+                        <div className="flex gap-4">
+                          <span>报价次数: {supplier.quote_count} 次</span>
+                          <span>最后报价: {supplier.last_quote_date
                             ? new Date(supplier.last_quote_date).toLocaleDateString('zh-CN')
-                            : '无'}
+                            : '无'}</span>
                         </div>
-                        <div>
-                          <span className="font-medium">录入方式：</span>
-                          {supplier.owner}
-                        </div>
-                        {supplier.created_by_name && (
-                          <div>
-                            <span className="font-medium">来源：</span>
-                            <span className="text-blue-600">{supplier.created_by_name}</span>
-                          </div>
-                        )}
                         {supplier.tags && supplier.tags.length > 0 && (
-                          <div className="col-span-2">
-                            <span className="font-medium">标签：</span>
+                          <div className="flex gap-1 flex-wrap mt-1">
                             {supplier.tags.map((tag, idx) => (
                               <span
                                 key={idx}
-                                className="inline-block ml-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs"
+                                className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs"
                               >
                                 {tag}
                               </span>
@@ -194,7 +183,7 @@ const SupplierPanel = ({ isOpen, onClose, selectedRow }: SupplierPanelProps) => 
                         )}
                       </div>
                     </div>
-                    <div className="ml-4">
+                    <div className="flex gap-2 ml-4">
                       <button
                         onClick={() => handleDelete(supplier.id, supplier.company_name)}
                         className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600"
@@ -211,7 +200,7 @@ const SupplierPanel = ({ isOpen, onClose, selectedRow }: SupplierPanelProps) => 
 
         {/* Footer */}
         <div className="px-6 py-3 border-t border-gray-200 text-sm text-gray-500">
-          共 {suppliers.length} 个供应商
+          共 {filteredSuppliers.length} 个供应商
         </div>
       </div>
     </div>
