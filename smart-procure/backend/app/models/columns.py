@@ -1,12 +1,44 @@
-BASIC_COLS = ["物料名称", "品牌", "规格型号", "预测数量", "单位"]
+ITEM_COL_NAME = "物料名称"
+ITEM_COL_BRAND = "品牌"
+ITEM_COL_SPEC = "规格型号"
+ITEM_COL_QUANTITY = "预测数量"
+ITEM_COL_UNIT = "单位"
+
+BASIC_COLS = [
+    ITEM_COL_NAME,
+    ITEM_COL_BRAND,
+    ITEM_COL_SPEC,
+    ITEM_COL_QUANTITY,
+    ITEM_COL_UNIT,
+]
+
+SLOT_FIELD_BRAND = "品牌"
+SLOT_FIELD_REMARKS = "备注"
+SLOT_FIELD_PRICE = "单价"
+SLOT_FIELD_TAX = "含税"
+SLOT_FIELD_SHIPPING = "含运"
+SLOT_FIELD_DELIVERY = "货期"
+SLOT_FIELD_SUPPLIER = "供应商"
 
 SLOT_TEMPLATE = [
-    "品牌", "备注", "单价", "含税", "含运", "货期", 
-    "供应商"
+    SLOT_FIELD_BRAND,
+    SLOT_FIELD_REMARKS,
+    SLOT_FIELD_PRICE,
+    SLOT_FIELD_TAX,
+    SLOT_FIELD_SHIPPING,
+    SLOT_FIELD_DELIVERY,
+    SLOT_FIELD_SUPPLIER,
+]
+
+REQUIRED_QUOTE_FIELDS = [
+    SLOT_FIELD_PRICE,
+    SLOT_FIELD_TAX,
+    SLOT_FIELD_SHIPPING,
+    SLOT_FIELD_DELIVERY,
 ]
 
 # Generate headers
-# ["序号"..."品牌", "备注1", "单价1"..."手机1", "备注2"..."手机2"...]
+# ["序号"..."品牌", "备注1", "单价1"..."供应商1", "备注2"..."供应商2"...]
 HEADERS = list(BASIC_COLS)
 for i in range(1, 4):
     for col in SLOT_TEMPLATE:

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Database models for SmartProcure
 """
 from sqlalchemy import create_engine, Column, String, Integer, Float, DateTime, JSON, ForeignKey, Text, text
@@ -20,7 +20,7 @@ Base = declarative_base()
 
 
 class User(Base):
-    """鐢ㄦ埛妯″瀷"""
+    """用户模型"""
     __tablename__ = "users"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -62,7 +62,7 @@ class Supplier(Base):
     # Core fields
     company_name = Column(String, nullable=False, unique=True)
     contact_phone = Column(String, nullable=False)
-    owner = Column(String, nullable=False, default="绯荤粺鑷姩")
+    owner = Column(String, nullable=False, default="系统自动")
 
     # 娓犻亾鏍囩 - 璁板綍鏄皝娣诲姞鐨勮繖涓緵搴斿晢
     created_by = Column(String(36), ForeignKey("users.id"), index=True)
@@ -109,6 +109,9 @@ class Notification(Base):
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     message = Column(Text, nullable=False)
     type = Column(String(20), nullable=False, default="info", server_default="info")
+    status = Column(String(20), nullable=False, default="unread", server_default="unread", index=True)
+    read_at = Column(DateTime(timezone=True), nullable=True)
+    archived_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False, index=True)
 
 
@@ -127,6 +130,21 @@ def _ensure_legacy_columns():
                 conn.execute(
                     text("CREATE INDEX IF NOT EXISTS ix_users_role ON users (role)")
                 )
+                conn.execute(
+                    text("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'unread'")
+                )
+                conn.execute(
+                    text("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ NULL")
+                )
+                conn.execute(
+                    text("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ NULL")
+                )
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_notifications_user_status_created "
+                        "ON notifications (user_id, status, created_at)"
+                    )
+                )
                 return
 
             if dialect == "sqlite":
@@ -137,12 +155,55 @@ def _ensure_legacy_columns():
                         "ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'user'"
                     )
                 conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_users_role ON users (role)")
+
+                notification_rows = conn.exec_driver_sql("PRAGMA table_info(notifications)").fetchall()
+                notification_columns = {r[1] for r in notification_rows}
+                if notification_rows:
+                    if "status" not in notification_columns:
+                        conn.exec_driver_sql(
+                            "ALTER TABLE notifications ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'unread'"
+                        )
+                    if "read_at" not in notification_columns:
+                        conn.exec_driver_sql(
+                            "ALTER TABLE notifications ADD COLUMN read_at DATETIME"
+                        )
+                    if "archived_at" not in notification_columns:
+                        conn.exec_driver_sql(
+                            "ALTER TABLE notifications ADD COLUMN archived_at DATETIME"
+                        )
+                    conn.exec_driver_sql(
+                        "CREATE INDEX IF NOT EXISTS ix_notifications_user_status_created "
+                        "ON notifications (user_id, status, created_at)"
+                    )
                 return
 
             # Generic fallback for other SQL dialects
             try:
                 conn.execute(
                     text("ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'user'")
+                )
+            except Exception:
+                pass
+            try:
+                conn.execute(
+                    text("ALTER TABLE notifications ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'unread'")
+                )
+            except Exception:
+                pass
+            try:
+                conn.execute(text("ALTER TABLE notifications ADD COLUMN read_at DATETIME NULL"))
+            except Exception:
+                pass
+            try:
+                conn.execute(text("ALTER TABLE notifications ADD COLUMN archived_at DATETIME NULL"))
+            except Exception:
+                pass
+            try:
+                conn.execute(
+                    text(
+                        "CREATE INDEX ix_notifications_user_status_created "
+                        "ON notifications (user_id, status, created_at)"
+                    )
                 )
             except Exception:
                 pass

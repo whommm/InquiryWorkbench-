@@ -44,6 +44,22 @@ export type ChatHistoryMessage = {
   content: string;
 };
 
+export type SaveSheetRequest = {
+  id?: string;
+  name: string;
+  sheet_data: unknown[][];
+  chat_history: ChatHistoryMessage[];
+  expected_updated_at?: string | null;
+  force_overwrite?: boolean;
+};
+
+export type SaveSheetResponse = {
+  id: string;
+  message: string;
+  completion_rate: number;
+  updated_at?: string | null;
+};
+
 export const sendChat = async (
   message: string,
   currentSheetData: unknown[][],
@@ -71,12 +87,7 @@ export const uploadFile = async (file: File) => {
 };
 
 // Sheet save/load API functions
-export const saveSheet = async (data: {
-  id?: string;
-  name: string;
-  sheet_data: unknown[][];
-  chat_history: ChatHistoryMessage[];
-}) => {
+export const saveSheet = async (data: SaveSheetRequest): Promise<SaveSheetResponse> => {
   const response = await api.post('/sheets/save', data);
   return response.data;
 };
@@ -136,7 +147,52 @@ export const extractSuppliersFromSheet = async (sheetData: unknown[][]) => {
   return response.data;
 };
 
-export const getNotifications = async () => {
-  const response = await api.get('/notifications');
+export type NotificationStatus = 'unread' | 'read' | 'archived';
+export type NotificationType = 'info' | 'success' | 'error';
+
+export type NotificationDTO = {
+  id: number;
+  message: string;
+  type: NotificationType;
+  status: NotificationStatus;
+  created_at?: string | null;
+  read_at?: string | null;
+  archived_at?: string | null;
+};
+
+export type ListNotificationsResponse = {
+  notifications: NotificationDTO[];
+  unread_count: number;
+};
+
+export const getNotifications = async (
+  status: NotificationStatus | 'all' = 'unread',
+  limit: number = 50
+): Promise<ListNotificationsResponse> => {
+  const response = await api.get('/notifications', { params: { status, limit } });
+  return response.data;
+};
+
+export const getNotificationStreamUrl = (): string => {
+  const token = localStorage.getItem('token') || '';
+  return `/api/notifications/stream?token=${encodeURIComponent(token)}`;
+};
+
+export const markNotificationRead = async (
+  notificationId: number
+): Promise<{ notification: NotificationDTO }> => {
+  const response = await api.post(`/notifications/${notificationId}/read`);
+  return response.data;
+};
+
+export const markAllNotificationsRead = async (): Promise<{ updated: number }> => {
+  const response = await api.post('/notifications/read-all');
+  return response.data;
+};
+
+export const archiveNotification = async (
+  notificationId: number
+): Promise<{ notification: NotificationDTO }> => {
+  const response = await api.post(`/notifications/${notificationId}/archive`);
   return response.data;
 };

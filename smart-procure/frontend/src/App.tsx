@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Layout from './components/Layout';
 import ChatPanel from './components/ChatPanel';
 import UniverSheet from './components/UniverSheet';
@@ -45,7 +45,10 @@ function App() {
     try {
       const result = await handleManualSave();
       if (!result.success) {
-        setToast({ message: '淇濆瓨澶辫触', type: 'error' });
+        setToast({
+          message: result.conflict ? '检测到版本冲突，已保留本地改动' : '保存失败',
+          type: result.conflict ? 'info' : 'error',
+        });
       }
     } finally {
       setIsSaving(false);

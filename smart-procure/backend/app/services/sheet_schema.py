@@ -2,6 +2,19 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 from difflib import SequenceMatcher
 
+from ..models.columns import (
+    ITEM_COL_BRAND,
+    ITEM_COL_NAME,
+    SLOT_FIELD_BRAND,
+    SLOT_FIELD_DELIVERY,
+    SLOT_FIELD_PRICE,
+    SLOT_FIELD_REMARKS,
+    SLOT_FIELD_SHIPPING,
+    SLOT_FIELD_SUPPLIER,
+    SLOT_FIELD_TAX,
+    SLOT_TEMPLATE,
+)
+
 
 def normalize_header(text: Any) -> str:
     if text is None:
@@ -26,18 +39,18 @@ def fuzzy_match_score(str1: str, str2: str) -> float:
 
 
 CANONICAL_FIELD_SYNONYMS: Dict[str, List[str]] = {
-    "品牌": ["品牌", "报价品牌", "品牌(报价)"],
-    "备注": ["备注", "说明", "备注说明"],
-    "单价": ["单价", "价格", "报价", "含税单价", "不含税单价"],
-    "含税": ["含税", "是否含税", "税", "税率", "含税?", "是否含税?", "含税/不含税"],
-    "含运": ["含运", "是否含运", "运费", "含运?", "含运费", "是否含运?", "含运/不含运"],
-    "货期": ["货期", "交期", "交货期", "交货时间", "发货时间", "到货时间"],
-    "供应商": ["供应商", "供应商名称", "供应商全称", "供应商姓名", "供应商手机", "公司名称"],
+    SLOT_FIELD_BRAND: [SLOT_FIELD_BRAND, "报价品牌", "品牌(报价)"],
+    SLOT_FIELD_REMARKS: [SLOT_FIELD_REMARKS, "说明", "备注说明"],
+    SLOT_FIELD_PRICE: [SLOT_FIELD_PRICE, "价格", "报价", "含税单价", "不含税单价"],
+    SLOT_FIELD_TAX: [SLOT_FIELD_TAX, "是否含税", "税", "税率", "含税?", "是否含税?", "含税/不含税"],
+    SLOT_FIELD_SHIPPING: [SLOT_FIELD_SHIPPING, "是否含运", "运费", "含运?", "含运费", "是否含运?", "含运/不含运"],
+    SLOT_FIELD_DELIVERY: [SLOT_FIELD_DELIVERY, "交期", "交货期", "交货时间", "发货时间", "到货时间"],
+    SLOT_FIELD_SUPPLIER: [SLOT_FIELD_SUPPLIER, "供应商名称", "供应商全称", "供应商姓名", "供应商手机", "公司名称"],
 }
 
-ITEM_NAME_COL_SYNONYMS = ["物料名称", "物品名称", "品名", "名称", "物料", "产品名称", "材料名称"]
-ITEM_SPEC_COL_SYNONYMS = ["规格", "规格型号", "规格型号", "型号", "规格/型号", "规格型号/型号"]
-ITEM_BRAND_COL_SYNONYMS = ["品牌", "牌", "品牌名称"]
+ITEM_NAME_COL_SYNONYMS = [ITEM_COL_NAME, "物品名称", "品名", "名称", "物料", "产品名称", "材料名称"]
+ITEM_SPEC_COL_SYNONYMS = ["规格", "规格型号", "型号", "规格/型号", "规格型号/型号"]
+ITEM_BRAND_COL_SYNONYMS = [ITEM_COL_BRAND, "牌", "品牌名称"]
 ITEM_MODEL_COL_SYNONYMS = ["产品型号", "型号", "物料型号", "规格型号", "产品编码", "物料编码", "料号", "型号/编码", "规格型号/编码"]
 
 
@@ -175,7 +188,7 @@ def build_sheet_schema(sheet_data: Optional[List[List[Any]]]) -> Dict[str, Any]:
         basic_cols_count = 5
         slot_size = 7
         slot_start = basic_cols_count
-        slot_fields = ["品牌", "备注", "单价", "含税", "含运", "货期", "供应商"]
+        slot_fields = list(SLOT_TEMPLATE)
         slot_num = 1
         col_idx = slot_start
         while col_idx + slot_size <= len(headers):
@@ -275,7 +288,7 @@ def _cell_text(v: Any) -> str:
         return ""
     return str(v).strip()
 
-SLOT_FIELDS_ORDER = ["品牌", "备注", "单价", "含税", "含运", "货期", "供应商"]
+SLOT_FIELDS_ORDER = list(SLOT_TEMPLATE)
 
 
 def find_row_by_item_name(sheet_data: List[List[Any]], query: str, max_scan_rows: int = 3000) -> Optional[int]:

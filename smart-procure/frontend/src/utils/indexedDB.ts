@@ -14,6 +14,7 @@ export interface InquiryTab {
   createdAt: number;
   updatedAt: number;
   isDirty: boolean;
+  serverUpdatedAt?: string | null;
 }
 
 const DB_NAME_PREFIX = 'SmartProcureDB_';

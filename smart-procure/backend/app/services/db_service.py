@@ -4,7 +4,16 @@ Database service for inquiry sheet operations
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.models.database import InquirySheet
-from app.core.datetime_utils import utc_now
+from app.core.datetime_utils import ensure_utc, utc_now
+
+
+class SheetConflictError(Exception):
+    """Raised when optimistic concurrency check fails for a sheet save."""
+
+    def __init__(self, sheet: InquirySheet, reason: str = "stale_base"):
+        super().__init__(reason)
+        self.sheet = sheet
+        self.reason = reason
 
 
 class DBService:
@@ -21,7 +30,9 @@ class DBService:
         chat_history: list,
         user_id: str,
         item_count: int = 0,
-        completion_rate: float = 0.0
+        completion_rate: float = 0.0,
+        expected_updated_at=None,
+        force_overwrite: bool = False,
     ) -> InquirySheet:
         """Save or update an inquiry sheet"""
         existing = self.db.query(InquirySheet).filter(
@@ -30,6 +41,14 @@ class DBService:
         ).first()
 
         if existing:
+            existing_updated_at = ensure_utc(existing.updated_at)
+            expected = ensure_utc(expected_updated_at) if expected_updated_at is not None else None
+            if not force_overwrite:
+                if expected is None:
+                    raise SheetConflictError(existing, reason="missing_base")
+                if existing_updated_at and existing_updated_at > expected:
+                    raise SheetConflictError(existing, reason="stale_base")
+
             # Update existing sheet
             existing.name = name
             existing.sheet_data = sheet_data

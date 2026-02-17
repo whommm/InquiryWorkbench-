@@ -205,37 +205,70 @@ export const useProcureState = () => {
     ));
   };
 
-  const handleManualSave = async (): Promise<{ success: boolean; newSupplierCount?: number }> => {
+  const handleManualSave = async (): Promise<{ success: boolean; newSupplierCount?: number; conflict?: boolean }> => {
     if (!activeTabId || !activeTab) return { success: false };
 
-    try {
-      // 1. 保存表格数据到后端
-      await saveSheet({
-        id: activeTab.id,
-        name: activeTab.name,
-        sheet_data: activeTab.sheetData,
-        chat_history: activeTab.chatHistory,
-      });
+    const basePayload = {
+      id: activeTab.id,
+      name: activeTab.name,
+      sheet_data: activeTab.sheetData,
+      chat_history: activeTab.chatHistory,
+      expected_updated_at: activeTab.serverUpdatedAt || undefined,
+    };
 
-      // 2. 提取并沉淀供应商数据（异步，不阻塞）
-      let newSupplierCount = 0;
-      try {
-        const result = await extractSuppliersFromSheet(activeTab.sheetData);
-        newSupplierCount = result.new_count || 0;
-        if (newSupplierCount > 0) {
-          console.log(`✓ 发现 ${newSupplierCount} 个新供应商，后台提取中...`);
-        }
-      } catch (extractError) {
-        console.warn('供应商提取失败:', extractError);
+    let saveResult: { updated_at?: string | null } | null = null;
+
+    try {
+      saveResult = await saveSheet(basePayload);
+    } catch (error) {
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      if (status !== 409) {
+        console.error('❌ 手动保存失败:', error);
+        return { success: false };
       }
 
-      await updateTab(activeTabId, { isDirty: false });
-      console.log(`✓ 手动保存成功: ${activeTab.name}`);
-      return { success: true, newSupplierCount };
-    } catch (error) {
-      console.error('❌ 手动保存失败:', error);
-      return { success: false };
+      const detail = (error as { response?: { data?: { detail?: Record<string, unknown> } } })?.response?.data?.detail;
+      const serverUpdatedAt = typeof detail?.server_updated_at === 'string' ? detail.server_updated_at : '';
+      const timeLabel = serverUpdatedAt
+        ? new Date(serverUpdatedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+        : '未知时间';
+
+      const shouldOverwrite = window.confirm(
+        `检测到服务器版本冲突（服务器更新时间：${timeLabel}）。\n是否使用当前本地内容覆盖服务器版本？`
+      );
+      if (!shouldOverwrite) {
+        return { success: false, conflict: true };
+      }
+
+      try {
+        saveResult = await saveSheet({
+          ...basePayload,
+          force_overwrite: true,
+        });
+      } catch (overwriteError) {
+        console.error('❌ 冲突覆盖保存失败:', overwriteError);
+        return { success: false };
+      }
     }
+
+    // 2. 提取并沉淀供应商数据（异步，不阻塞）
+    let newSupplierCount = 0;
+    try {
+      const result = await extractSuppliersFromSheet(activeTab.sheetData);
+      newSupplierCount = result.new_count || 0;
+      if (newSupplierCount > 0) {
+        console.log(`✓ 发现 ${newSupplierCount} 个新供应商，后台提取中...`);
+      }
+    } catch (extractError) {
+      console.warn('供应商提取失败:', extractError);
+    }
+
+    await updateTab(activeTabId, {
+      isDirty: false,
+      serverUpdatedAt: saveResult?.updated_at || activeTab.serverUpdatedAt || null,
+    });
+    console.log(`✓ 手动保存成功: ${activeTab.name}`);
+    return { success: true, newSupplierCount };
   };
 
   return {

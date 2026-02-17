@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { recommendSuppliers } from '../utils/api';
 
 interface RecommendPanelProps {
@@ -75,13 +75,13 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
 
       const row = sheetDataRef.current[rowIndex];
       if (!Array.isArray(row) || row.length < 3) {
-        setError('鏃犳硶鑾峰彇浜у搧淇℃伅');
+        setError('无法获取产品信息');
         return;
       }
 
       const headers = Array.isArray(sheetDataRef.current[0]) ? sheetDataRef.current[0] : [];
 
-      const brandColIndex = headers.findIndex((h) => String(h ?? '') === '鍝佺墝');
+      const brandColIndex = headers.findIndex((h) => String(h ?? '') === '品牌');
       const brand = brandColIndex >= 0 ? String(row[brandColIndex] ?? '').trim() : '';
 
       const basicColCount = Math.min(6, row.length);
@@ -101,7 +101,7 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
       const productName = searchTerms.join(' ');
 
       if (!productName && !brand) {
-        setError('浜у搧淇℃伅涓虹┖');
+        setError('产品信息为空');
         setRecommendations([]);
         return;
       }
@@ -131,7 +131,7 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
       if (currentRequestId !== requestIdRef.current) {
         return;
       }
-      setError(err instanceof Error ? err.message : '鑾峰彇鎺ㄨ崘澶辫触');
+      setError(err instanceof Error ? err.message : '获取推荐失败');
       setRecommendations([]);
     } finally {
       if (currentRequestId === requestIdRef.current) {
@@ -156,7 +156,7 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
               />
             </svg>
           </div>
-          <span className="font-semibold text-gray-700 text-sm">鏅鸿兘鎺ㄨ崘</span>
+          <span className="font-semibold text-gray-700 text-sm">智能推荐</span>
         </div>
         <button
           onClick={onClose}
@@ -192,15 +192,15 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
           <div className="mb-3 bg-purple-50 p-3 rounded-lg border border-purple-100">
             <h3 className="font-medium text-gray-900 text-xs mb-2 flex items-center gap-1">
               <span className="w-1 h-3 bg-purple-500 rounded-full"></span>
-              褰撳墠閫変腑浜у搧
+              当前选中产品
             </h3>
             <div className="space-y-1 text-xs">
               <div className="flex">
-                <span className="text-gray-500 w-16 flex-shrink-0">鍚嶇О:</span>
+                <span className="text-gray-500 w-16 flex-shrink-0">名称:</span>
                 <span className="font-medium text-gray-900 truncate">{productInfo.name || '-'}</span>
               </div>
               <div className="flex">
-                <span className="text-gray-500 w-16 flex-shrink-0">鍝佺墝:</span>
+                <span className="text-gray-500 w-16 flex-shrink-0">品牌:</span>
                 <span className="font-medium text-gray-900">{productInfo.brand || '-'}</span>
               </div>
             </div>
@@ -211,7 +211,7 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
           <div className="flex items-center justify-center h-32">
             <div className="flex flex-col items-center gap-2">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
-              <span className="text-xs text-gray-500">姝ｅ湪鍒嗘瀽...</span>
+              <span className="text-xs text-gray-500">正在分析...</span>
             </div>
           </div>
         ) : error ? (
@@ -230,7 +230,7 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
           <div className="space-y-3">
             <h3 className="font-medium text-gray-900 text-xs flex items-center gap-1">
               <span className="w-1 h-3 bg-emerald-500 rounded-full"></span>
-              鎺ㄨ崘渚涘簲鍟?({recommendations.length})
+              推荐供应商 ({recommendations.length})
             </h3>
             <div className="space-y-2">
               {recommendations.map((rec) => (
@@ -255,14 +255,14 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
                         </span>
                       </div>
                       <div className="flex items-center gap-2 text-[11px] text-gray-500">
-                        <span>{rec.contact_name || '鏈～鍐?'}</span>
-                        <span>路</span>
-                        <span>{rec.contact_phone || '鏈～鍐?'}</span>
+                        <span>{rec.contact_name || '未填写'}</span>
+                        <span>·</span>
+                        <span>{rec.contact_phone || '未填写'}</span>
                       </div>
                     </div>
                     <div className="text-right flex-shrink-0 ml-2">
-                      <div className="text-base font-bold text-emerald-600">楼{(rec.avg_price ?? 0).toLocaleString()}</div>
-                      <div className="text-[10px] text-gray-400">{rec.quote_count ?? 0}娆℃姤浠?</div>
+                      <div className="text-base font-bold text-emerald-600">¥{(rec.avg_price ?? 0).toLocaleString()}</div>
+                      <div className="text-[10px] text-gray-400">{rec.quote_count ?? 0}次报价</div>
                     </div>
                   </div>
 
@@ -281,7 +281,7 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
 
                   <div className="pt-2 border-t border-gray-100 flex justify-between items-center">
                     <p className="text-[11px] text-gray-500 italic truncate max-w-[180px]">"{rec.last_quote_text || '-'}"</p>
-                    <span className="text-[10px] text-yellow-500">猸?{(rec.star_rating ?? 0).toFixed(1)}</span>
+                    <span className="text-[10px] text-yellow-500">⭐ {(rec.star_rating ?? 0).toFixed(1)}</span>
                   </div>
                 </div>
               ))}

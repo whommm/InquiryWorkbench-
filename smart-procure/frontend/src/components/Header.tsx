@@ -1,43 +1,207 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useTabsStore } from '../stores/useTabsStore';
-import { exportSheet, getNotifications } from '../utils/api';
-import { toast } from 'sonner';
+import {
+  archiveNotification,
+  exportSheet,
+  getNotifications,
+  getNotificationStreamUrl,
+  markAllNotificationsRead,
+  markNotificationRead,
+  type NotificationDTO,
+  type NotificationStatus,
+  type NotificationType,
+} from '../utils/api';
 
 interface HeaderProps {
   onToggleSidebar?: () => void;
 }
 
-type NotificationType = 'info' | 'success' | 'error';
+const NOTIFICATION_LIMIT = 80;
+const STREAM_RECONNECT_DELAY_MS = 3000;
 
-interface NotificationItem {
-  id: number;
-  title: string;
-  message: string;
-  time: string;
-  read: boolean;
-  type: NotificationType;
-}
+const toTitle = (type: NotificationType) => {
+  if (type === 'success') return '操作成功';
+  if (type === 'error') return '系统告警';
+  return '系统通知';
+};
+
+const formatNotificationTime = (value?: string | null): string => {
+  if (!value) {
+    return '--';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '--';
+  }
+  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+};
+
+const sortByNewest = (items: NotificationDTO[]): NotificationDTO[] =>
+  [...items].sort((a, b) => {
+    const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+    if (aTime !== bTime) return bTime - aTime;
+    return b.id - a.id;
+  });
+
+const upsertNotification = (items: NotificationDTO[], incoming: NotificationDTO): NotificationDTO[] => {
+  const idx = items.findIndex((item) => item.id === incoming.id);
+  if (idx < 0) {
+    return sortByNewest([incoming, ...items]).slice(0, NOTIFICATION_LIMIT);
+  }
+  const next = [...items];
+  next[idx] = { ...next[idx], ...incoming };
+  return sortByNewest(next).slice(0, NOTIFICATION_LIMIT);
+};
+
+const showIncomingNotificationToast = (notification: NotificationDTO) => {
+  const message = notification.message || '收到一条新通知';
+  if (notification.type === 'success') {
+    toast.success(message);
+    return;
+  }
+  if (notification.type === 'error') {
+    toast.error(message);
+    return;
+  }
+  toast(message);
+};
 
 const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
   const { user, logout, isAuthenticated } = useAuthStore();
   const { tabs, activeTabId, updateTab, isLoading } = useTabsStore();
+
   const [showNotifications, setShowNotifications] = useState(false);
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [notifications, setNotifications] = useState<NotificationDTO[]>([]);
+  const [notificationLoading, setNotificationLoading] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
+  const streamRef = useRef<EventSource | null>(null);
+  const reconnectTimerRef = useRef<number | null>(null);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
+  const unreadCount = notifications.filter((n) => n.status === 'unread').length;
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
-
-  const formatTime = (date: Date) => {
-    return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  const clearReconnectTimer = () => {
+    if (reconnectTimerRef.current !== null) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
   };
 
-  const toTitle = (type: NotificationType) => {
-    if (type === 'success') return '操作成功';
-    if (type === 'error') return '系统告警';
-    return '系统通知';
+  const closeStream = () => {
+    if (streamRef.current) {
+      streamRef.current.close();
+      streamRef.current = null;
+    }
+  };
+
+  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (activeTab) {
+      void updateTab(activeTab.id, { name: e.target.value, isDirty: true });
+    }
+  };
+
+  const handleDownload = async () => {
+    if (!activeTab) {
+      toast.error('当前没有活动的表格可导出');
+      return;
+    }
+
+    if (activeTab.isDirty) {
+      toast.warning('当前有未保存改动，导出的是服务端最新版本');
+    }
+
+    const toastId = toast.loading('正在生成 Excel 报表...');
+    try {
+      const blob = await exportSheet(activeTab.id);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${activeTab.name}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      toast.success('报表已成功导出', { id: toastId });
+    } catch (error) {
+      console.error('Failed to export sheet:', error);
+      toast.error('导出失败', { id: toastId });
+    }
+  };
+
+  const markOneAsRead = async (notificationId: number) => {
+    try {
+      const result = await markNotificationRead(notificationId);
+      if (result?.notification) {
+        setNotifications((prev) => upsertNotification(prev, result.notification));
+      }
+    } catch (error) {
+      console.error('Failed to mark notification as read:', error);
+      toast.error('标记已读失败');
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      await markAllNotificationsRead();
+      const now = new Date().toISOString();
+      setNotifications((prev) =>
+        prev.map((item) =>
+          item.status === 'unread' ? { ...item, status: 'read', read_at: item.read_at || now } : item
+        )
+      );
+    } catch (error) {
+      console.error('Failed to mark all notifications as read:', error);
+      toast.error('全部已读失败');
+    }
+  };
+
+  const handleArchive = async (notificationId: number) => {
+    try {
+      const result = await archiveNotification(notificationId);
+      if (result?.notification) {
+        setNotifications((prev) => upsertNotification(prev, result.notification));
+      }
+    } catch (error) {
+      console.error('Failed to archive notification:', error);
+      toast.error('归档失败');
+    }
+  };
+
+  const connectNotificationStream = () => {
+    clearReconnectTimer();
+    closeStream();
+
+    const url = getNotificationStreamUrl();
+    if (!url.includes('token=') || url.endsWith('token=')) {
+      return;
+    }
+
+    const stream = new EventSource(url);
+    streamRef.current = stream;
+
+    stream.addEventListener('notification', (event: MessageEvent<string>) => {
+      try {
+        const payload = JSON.parse(event.data) as NotificationDTO;
+        if (!payload || typeof payload.id !== 'number') return;
+        setNotifications((prev) => upsertNotification(prev, payload));
+        if (payload.status === 'unread') {
+          showIncomingNotificationToast(payload);
+        }
+      } catch (error) {
+        console.error('Failed to parse notification SSE payload:', error);
+      }
+    });
+
+    stream.onerror = () => {
+      closeStream();
+      clearReconnectTimer();
+      reconnectTimerRef.current = window.setTimeout(() => {
+        connectNotificationStream();
+      }, STREAM_RECONNECT_DELAY_MS);
+    };
   };
 
   useEffect(() => {
@@ -54,91 +218,44 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
   }, []);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated) {
+      setNotifications([]);
+      clearReconnectTimer();
+      closeStream();
+      return;
+    }
 
+    let cancelled = false;
     const fetchNotifications = async () => {
+      setNotificationLoading(true);
       try {
-        const result = await getNotifications();
-        const incoming = Array.isArray(result?.notifications)
-          ? (result.notifications as Array<{ message?: string; type?: string }>)
-          : [];
-
-        if (!incoming.length) return;
-
-        const now = Date.now();
-        const mapped: NotificationItem[] = incoming.map((item, index) => {
-          const type: NotificationType =
-            item.type === 'success' || item.type === 'error' ? item.type : 'info';
-          const message = item.message || '收到一条新通知';
-
-          if (type === 'success') {
-            toast.success(message);
-          } else if (type === 'error') {
-            toast.error(message);
-          } else {
-            toast(message);
-          }
-
-          return {
-            id: now + index,
-            title: toTitle(type),
-            message,
-            time: formatTime(new Date()),
-            read: false,
-            type,
-          };
-        });
-
-        setNotifications((prev) => [...mapped, ...prev].slice(0, 50));
+        const result = await getNotifications('all', NOTIFICATION_LIMIT);
+        if (cancelled) return;
+        const list = Array.isArray(result?.notifications) ? result.notifications : [];
+        setNotifications(sortByNewest(list));
       } catch (error) {
         console.error('Failed to fetch notifications:', error);
+      } finally {
+        if (!cancelled) {
+          setNotificationLoading(false);
+        }
       }
     };
 
     void fetchNotifications();
-    const interval = window.setInterval(() => {
-      void fetchNotifications();
-    }, 5000);
+    connectNotificationStream();
 
-    return () => window.clearInterval(interval);
+    return () => {
+      cancelled = true;
+      clearReconnectTimer();
+      closeStream();
+    };
   }, [isAuthenticated]);
 
-  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (activeTab) {
-      void updateTab(activeTab.id, { name: e.target.value, isDirty: true });
-    }
-  };
-
-  const handleMarkAllRead = () => {
-    setNotifications((prev) => prev.map((item) => ({ ...item, read: true })));
-  };
-
-  const handleDownload = async () => {
-    if (!activeTab) {
-      toast.error('褰撳墠娌℃湁娲诲姩鐨勮〃鏍煎彲瀵煎嚭');
-      return;
-    }
-
-    if (activeTab.isDirty) {
-      toast.warning('当前有未保存改动，导出的是服务器最新版本');
-    }
-
-    const toastId = toast.loading('姝ｅ湪鐢熸垚 Excel 鎶ヨ〃...');
-    try {
-      const blob = await exportSheet(activeTab.id);
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${activeTab.name}.xlsx`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-      toast.success('报表已成功导出', { id: toastId });
-    } catch (error) {
-      console.error('Failed to export sheet:', error);
-      toast.error('瀵煎嚭澶辫触', { id: toastId });
-    }
+  const statusLabel = (status: NotificationStatus) => {
+    if (status === 'unread') return '未读';
+    if (status === 'archived') return '已归档';
+    return '已读';
   };
 
   return (
@@ -179,7 +296,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
               value={activeTab.name}
               onChange={handleTitleChange}
               className="bg-transparent border-none focus:ring-0 text-gray-700 font-medium text-sm w-full text-center p-0 placeholder-gray-400"
-              placeholder="鏈懡鍚嶈浠峰崟"
+              placeholder="未命名询价单"
             />
             <div className="w-2 h-2 rounded-full bg-emerald-500 ml-2" title="Auto-saved" />
           </div>
@@ -195,7 +312,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
               void handleDownload();
             }}
             className="p-2 text-gray-500 hover:text-emerald-600 hover:bg-gray-100 rounded-full transition-colors"
-            title="瀵煎嚭 Excel"
+            title="导出 Excel"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
@@ -211,7 +328,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
             <button
               onClick={() => setShowNotifications(!showNotifications)}
               className={`p-2 rounded-full transition-colors ${showNotifications ? 'bg-gray-100 text-emerald-600' : 'text-gray-500 hover:text-emerald-600 hover:bg-gray-100'}`}
-              title="閫氱煡"
+              title="通知"
             >
               <div className="relative">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -223,38 +340,85 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
                   />
                 </svg>
                 {unreadCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 block h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white" />
+                  <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[10px] leading-4 text-center">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
                 )}
               </div>
             </button>
 
             {showNotifications && (
-              <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-100 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="absolute right-0 top-full mt-2 w-96 bg-white rounded-xl shadow-lg border border-gray-100 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
                 <div className="px-4 py-2 border-b border-gray-50 flex justify-between items-center">
-                  <h3 className="font-semibold text-gray-800">閫氱煡涓績</h3>
+                  <h3 className="font-semibold text-gray-800">通知中心</h3>
                   <button
-                    onClick={handleMarkAllRead}
+                    onClick={() => {
+                      void handleMarkAllRead();
+                    }}
                     className="text-xs text-emerald-600 cursor-pointer hover:underline"
+                    disabled={unreadCount === 0}
                   >
-                    鍏ㄩ儴宸茶
+                    全部已读
                   </button>
                 </div>
-                <div className="max-h-[300px] overflow-y-auto">
-                  {notifications.length === 0 ? (
-                    <div className="px-4 py-6 text-sm text-gray-400 text-center">鏆傛棤閫氱煡</div>
+                <div className="max-h-[320px] overflow-y-auto">
+                  {notificationLoading ? (
+                    <div className="px-4 py-6 text-sm text-gray-400 text-center">加载中...</div>
+                  ) : notifications.length === 0 ? (
+                    <div className="px-4 py-6 text-sm text-gray-400 text-center">暂无通知</div>
                   ) : (
-                    notifications.map((n) => (
-                      <div
-                        key={n.id}
-                        className={`px-4 py-3 hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0 ${!n.read ? 'bg-blue-50/30' : ''}`}
-                      >
-                        <div className="flex justify-between items-start mb-1">
-                          <span className={`text-sm font-medium ${!n.read ? 'text-gray-900' : 'text-gray-600'}`}>{n.title}</span>
-                          <span className="text-xs text-gray-400">{n.time}</span>
+                    notifications.map((notification) => {
+                      const isUnread = notification.status === 'unread';
+                      const isArchived = notification.status === 'archived';
+                      return (
+                        <div
+                          key={notification.id}
+                          className={`w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0 ${isUnread ? 'bg-blue-50/30' : ''}`}
+                          onClick={() => {
+                            if (isUnread) {
+                              void markOneAsRead(notification.id);
+                            }
+                          }}
+                        >
+                          <div className="flex justify-between items-start gap-2 mb-1">
+                            <span className={`text-sm font-medium ${isUnread ? 'text-gray-900' : 'text-gray-600'}`}>
+                              {toTitle(notification.type)}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] text-gray-400">
+                                {formatNotificationTime(notification.created_at)}
+                              </span>
+                              <span
+                                className={`text-[10px] px-1.5 py-0.5 rounded ${
+                                  isUnread
+                                    ? 'bg-blue-100 text-blue-700'
+                                    : isArchived
+                                      ? 'bg-gray-100 text-gray-500'
+                                      : 'bg-emerald-100 text-emerald-700'
+                                }`}
+                              >
+                                {statusLabel(notification.status)}
+                              </span>
+                            </div>
+                          </div>
+                          <p className="text-sm text-gray-500 line-clamp-2">{notification.message}</p>
+                          <div className="mt-2 flex justify-end">
+                            {!isArchived && (
+                              <button
+                                type="button"
+                                className="text-xs text-gray-400 hover:text-gray-600"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleArchive(notification.id);
+                                }}
+                              >
+                                归档
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        <p className="text-sm text-gray-500 line-clamp-2">{n.message}</p>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>
@@ -265,7 +429,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
         <div className="flex items-center gap-3 pl-1">
           <div className="text-right hidden sm:block">
             <div className="text-sm font-medium text-gray-700">{user?.display_name || user?.username}</div>
-            <div className="text-xs text-gray-400">閲囪喘涓撳憳</div>
+            <div className="text-xs text-gray-400">采购专员</div>
           </div>
           <div className="relative group">
             <button className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center font-medium shadow-md border-2 border-white cursor-pointer">
@@ -277,11 +441,11 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
                 <p className="text-sm font-medium text-gray-900 truncate">{user?.display_name || user?.username}</p>
                 <p className="text-xs text-gray-500 truncate">{user?.username}</p>
               </div>
-              <a href="#" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">涓汉涓績</a>
-              <a href="#" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">璁剧疆</a>
+              <a href="#" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">个人中心</a>
+              <a href="#" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">设置</a>
               <div className="border-t border-gray-50 my-1"></div>
               <button onClick={logout} className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50">
-                閫€鍑虹櫥褰?
+                退出登录
               </button>
             </div>
           </div>
@@ -292,4 +456,3 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
 };
 
 export default Header;
-

@@ -57,6 +57,7 @@ const HistoryPanel = ({
         sheetData: sheet.sheet_data,
         chatHistory: sheet.chat_history,
         isDirty: false,
+        serverUpdatedAt: sheet.updated_at || null,
       });
 
       onClose();

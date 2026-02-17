@@ -1,5 +1,6 @@
 import re
 import uuid
+from datetime import datetime
 from typing import Optional
 from urllib.parse import quote
 
@@ -9,8 +10,10 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..auth.utils import get_current_user
+from ..core.datetime_utils import ensure_utc
+from ..models.columns import SLOT_FIELD_PRICE
 from ..models.database import User, get_db
-from ..services.db_service import DBService
+from ..services.db_service import DBService, SheetConflictError
 from ..services.excel_export import export_sheet_to_excel
 from ..services.notification_service import add_notification
 from ..services.sheet_schema import build_sheet_schema
@@ -24,10 +27,27 @@ class SaveSheetRequest(BaseModel):
     name: str
     sheet_data: list
     chat_history: list
+    expected_updated_at: Optional[str] = None
+    force_overwrite: bool = False
 
 
 class ExtractSuppliersRequest(BaseModel):
     sheet_data: list
+
+
+def _parse_client_datetime(value: Optional[str]) -> Optional[datetime]:
+    if not value or not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(text)
+    except Exception:
+        return None
+    return ensure_utc(dt)
 
 
 @router.post("/sheets/save")
@@ -39,6 +59,7 @@ async def save_sheet(
     """Save or update an inquiry sheet."""
     try:
         sheet_id = request.id or str(uuid.uuid4())
+        expected_updated_at = _parse_client_datetime(request.expected_updated_at)
 
         schema = build_sheet_schema(request.sheet_data)
         slots = schema.get("slots") or {}
@@ -53,7 +74,7 @@ async def save_sheet(
                     continue
                 for slot_num in slots.keys():
                     slot_map = slots.get(slot_num) or {}
-                    price_idx = slot_map.get("单价")
+                    price_idx = slot_map.get(SLOT_FIELD_PRICE)
                     if isinstance(price_idx, int) and price_idx < len(row):
                         val = row[price_idx]
                         if val and str(val).strip() and str(val).strip().lower() != "none":
@@ -69,13 +90,29 @@ async def save_sheet(
             user_id=current_user.id,
             item_count=item_count,
             completion_rate=completion_rate,
+            expected_updated_at=expected_updated_at,
+            force_overwrite=bool(request.force_overwrite),
         )
 
         return {
             "id": sheet.id,
             "message": "保存成功",
             "completion_rate": completion_rate,
+            "updated_at": sheet.updated_at.isoformat() if sheet.updated_at else None,
         }
+    except SheetConflictError as conflict:
+        server_sheet = conflict.sheet
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "sheet_conflict",
+                "reason": conflict.reason,
+                "message": "询价单已在其他端更新，请刷新或选择覆盖保存",
+                "sheet_id": server_sheet.id,
+                "sheet_name": server_sheet.name,
+                "server_updated_at": server_sheet.updated_at.isoformat() if server_sheet.updated_at else None,
+            },
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save sheet: {str(e)}")
 

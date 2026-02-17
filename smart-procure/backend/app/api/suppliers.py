@@ -1,4 +1,4 @@
-﻿from typing import Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -13,10 +13,10 @@ router = APIRouter()
 
 
 class RecommendRequest(BaseModel):
-    product_name: str = Field("", max_length=200, description="浜у搧鍚嶇О")
-    spec: Optional[str] = Field("", max_length=500, description="瑙勬牸鍨嬪彿")
-    brand: Optional[str] = Field("", max_length=100, description="鍝佺墝")
-    limit: Optional[int] = Field(5, ge=1, le=20, description="杩斿洖鏁伴噺闄愬埗")
+    product_name: str = Field("", max_length=200, description="产品名称")
+    spec: Optional[str] = Field("", max_length=500, description="规格型号")
+    brand: Optional[str] = Field("", max_length=100, description="品牌")
+    limit: Optional[int] = Field(5, ge=1, le=20, description="返回数量限制")
 
 
 @router.get("/suppliers/search")
@@ -101,7 +101,7 @@ async def delete_supplier_endpoint(
         success = supplier_service.delete_supplier(supplier_id)
         if not success:
             raise HTTPException(status_code=404, detail="Supplier not found")
-        return {"message": "鍒犻櫎鎴愬姛"}
+        return {"message": "删除成功"}
     except HTTPException:
         raise
     except Exception as e:

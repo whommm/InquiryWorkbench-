@@ -52,13 +52,18 @@ export const useTabsStore = create<TabsState>((set, get) => ({
           createdAt: Date.now(),
           updatedAt: Date.now(),
           isDirty: false,
+          serverUpdatedAt: null,
         };
 
         await saveTab(userId, defaultTab);
         set({ tabs: [defaultTab], activeTabId: defaultTab.id });
       } else {
         // Load existing tabs, set first as active
-        set({ tabs, activeTabId: tabs[0].id });
+        const normalizedTabs = tabs.map((tab) => ({
+          ...tab,
+          serverUpdatedAt: tab.serverUpdatedAt ?? null,
+        }));
+        set({ tabs: normalizedTabs, activeTabId: normalizedTabs[0].id });
       }
     } catch (error) {
       console.error('Failed to initialize tabs:', error);
@@ -71,6 +76,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
         createdAt: Date.now(),
         updatedAt: Date.now(),
         isDirty: false,
+        serverUpdatedAt: null,
       };
       set({ tabs: [fallbackTab], activeTabId: fallbackTab.id });
     } finally {
@@ -110,6 +116,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
       createdAt: initialData?.createdAt || Date.now(),
       updatedAt: Date.now(),
       isDirty: initialData?.isDirty ?? false,
+      serverUpdatedAt: initialData?.serverUpdatedAt ?? null,
     };
 
     try {
