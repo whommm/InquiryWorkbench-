@@ -66,18 +66,12 @@ def _detect_slot_suffix(norm_header: str) -> Tuple[str, Optional[int]]:
 
 
 def _canonical_field_from_base(base: str) -> Optional[str]:
+    # 只做精确匹配，避免"报价"匹配到"报价中"这种错误
     for canonical, syns in CANONICAL_FIELD_SYNONYMS.items():
         for s in syns:
             if not s:
                 continue
             if base == normalize_header(s):
-                return canonical
-    for canonical, syns in CANONICAL_FIELD_SYNONYMS.items():
-        for s in syns:
-            sn = normalize_header(s)
-            if not sn:
-                continue
-            if len(sn) >= 2 and sn in base:
                 return canonical
     return None
 

@@ -220,7 +220,9 @@ def build_smart_context(message: str, sheet_data: List[List[Any]], max_rows: int
             if row_num not in relevant_rows_dict:
                 relevant_rows_dict[row_num] = match
 
-    if brand_context:
+    # 只有当用户消息中没有具体产品名称时，才按品牌匹配所有产品
+    # 如果已经有模糊匹配的结果，说明用户提到了具体产品，不需要按品牌扩展
+    if brand_context and not relevant_rows_dict:
         schema = build_sheet_schema(sheet_data)
         cols = schema.get("item_columns") or {}
         brand_col = cols.get("brand")
