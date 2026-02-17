@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
+﻿import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { listSheets, getSheet, deleteSheet, exportSheet } from '../utils/api';
 import { useTabsStore } from '../stores/useTabsStore';
+import ConfirmDialog from './ConfirmDialog';
 
 interface SheetListItem {
   id: string;
@@ -17,20 +19,18 @@ interface HistoryPanelProps {
   onClearHistory?: () => Promise<void>;
 }
 
-const HistoryPanel = ({ 
-  isOpen,
-  onClose,
-  onClearHistory
-}: HistoryPanelProps) => {
+const HistoryPanel = ({ isOpen, onClose, onClearHistory }: HistoryPanelProps) => {
   const [sheets, setSheets] = useState<SheetListItem[]>([]);
-
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+
   const { createTab } = useTabsStore();
 
   useEffect(() => {
     if (isOpen) {
-      loadSheets();
+      void loadSheets();
     }
   }, [isOpen]);
 
@@ -41,7 +41,7 @@ const HistoryPanel = ({
       setSheets(response.sheets || []);
     } catch (error) {
       console.error('Failed to load sheets:', error);
-      alert('加载历史记录失败');
+      toast.error('加载历史记录失败');
     } finally {
       setLoading(false);
     }
@@ -50,42 +50,38 @@ const HistoryPanel = ({
   const handleLoadSheet = async (sheetId: string) => {
     try {
       const sheet = await getSheet(sheetId);
-
-      // Create new tab with loaded data, preserving the original ID
       await createTab(sheet.name, {
-        id: sheet.id,  // 保留原始ID，这样保存时会更新而不是创建新记录
+        id: sheet.id,
         sheetData: sheet.sheet_data,
         chatHistory: sheet.chat_history,
         isDirty: false,
         serverUpdatedAt: sheet.updated_at || null,
       });
-
       onClose();
+      toast.success('询价单已加载到新标签页');
     } catch (error) {
       console.error('Failed to load sheet:', error);
-      alert('加载询价单失败');
+      toast.error('加载询价单失败');
     }
   };
 
-  const handleDeleteSheet = async (sheetId: string, sheetName: string) => {
-    if (!confirm(`确定要删除询价单 "${sheetName}" 吗？`)) {
-      return;
-    }
-
+  const confirmDeleteSheet = async () => {
+    if (!deleteTarget) return;
     try {
-      await deleteSheet(sheetId);
-      await loadSheets(); // Reload list
+      await deleteSheet(deleteTarget.id);
+      toast.success(`已删除: ${deleteTarget.name}`);
+      await loadSheets();
     } catch (error) {
       console.error('Failed to delete sheet:', error);
-      alert('删除失败');
+      toast.error('删除失败');
+    } finally {
+      setDeleteTarget(null);
     }
   };
 
   const handleExportSheet = async (sheetId: string, sheetName: string) => {
     try {
       const blob = await exportSheet(sheetId);
-
-      // Create download link
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -94,133 +90,144 @@ const HistoryPanel = ({
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
+      toast.success('导出成功');
     } catch (error) {
       console.error('Failed to export sheet:', error);
-      alert('导出失败');
+      toast.error('导出失败');
     }
   };
 
-  const filteredSheets = sheets.filter(sheet =>
+  const filteredSheets = sheets.filter((sheet) =>
     sheet.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-2xl w-[800px] max-h-[600px] flex flex-col border border-gray-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-emerald-100 text-emerald-600 rounded-lg">
+    <>
+      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="modal-shell w-[min(92vw,800px)] max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-emerald-100 text-emerald-600 rounded-lg">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">历史询价单</h2>
+                <p className="text-xs text-gray-500">查看并管理之前保存的询价记录</p>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              aria-label="关闭历史询价单弹窗"
+              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+            >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">历史询价单</h2>
-              <p className="text-xs text-gray-500">查看和管理您之前的询价记录</p>
-            </div>
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
 
-        {/* Search */}
-        <div className="px-6 py-4 border-b border-gray-100 flex gap-3 bg-white">
-          <div className="relative flex-1">
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input
-              type="text"
-              placeholder="搜索询价单..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-sm"
-            />
-          </div>
-          {onClearHistory && (
-             <button
-              onClick={async () => {
-                if (confirm('确定要清空所有历史记录吗？此操作不可恢复。')) {
-                   await onClearHistory();
-                   loadSheets();
-                }
-              }}
-              className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 border border-red-200 rounded-lg transition-colors flex items-center gap-2"
-             >
-               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-               </svg>
-               清空记录
-             </button>
-          )}
-        </div>
-
-        {/* List */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
-          {loading ? (
-            <div className="text-center text-gray-500 py-8">加载中...</div>
-          ) : filteredSheets.length === 0 ? (
-            <div className="text-center text-gray-500 py-8">
-              {searchQuery ? '没有找到匹配的询价单' : '暂无历史记录'}
+          <div className="px-6 py-4 border-b border-gray-100 flex flex-wrap gap-3 bg-white">
+            <div className="relative flex-1 min-w-[220px]">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                placeholder="搜索询价单..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-sm"
+              />
             </div>
-          ) : (
-            <div className="space-y-3">
-              {filteredSheets.map((sheet) => (
-                <div
-                  key={sheet.id}
-                  className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <h3 className="font-medium text-gray-900">{sheet.name}</h3>
-                      <div className="mt-1 text-sm text-gray-500 space-y-1">
-                        <div>物料数量: {sheet.item_count} 项</div>
-                        <div>更新时间: {new Date(sheet.updated_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}</div>
+            {onClearHistory && (
+              <button
+                onClick={() => setClearConfirmOpen(true)}
+                className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 border border-red-200 rounded-lg transition-colors flex items-center gap-2"
+              >
+                清空记录
+              </button>
+            )}
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-6 py-4">
+            {loading ? (
+              <div className="text-center text-gray-500 py-8">加载中...</div>
+            ) : filteredSheets.length === 0 ? (
+              <div className="text-center text-gray-500 py-8">
+                {searchQuery ? '没有找到匹配的询价单' : '暂无历史记录'}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {filteredSheets.map((sheet) => (
+                  <div key={sheet.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-medium text-gray-900 truncate">{sheet.name}</h3>
+                        <div className="mt-1 text-sm text-gray-500 space-y-1">
+                          <div>物料数量: {sheet.item_count} 项</div>
+                          <div>更新时间: {new Date(sheet.updated_at).toLocaleString('zh-CN')}</div>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 ml-2 shrink-0">
+                        <button onClick={() => void handleLoadSheet(sheet.id)} className="px-3 py-1 text-sm btn-primary rounded">
+                          加载
+                        </button>
+                        <button
+                          onClick={() => void handleExportSheet(sheet.id, sheet.name)}
+                          className="px-3 py-1 text-sm text-emerald-700 border border-emerald-200 bg-emerald-50 rounded hover:bg-emerald-100"
+                        >
+                          导出
+                        </button>
+                        <button
+                          onClick={() => setDeleteTarget({ id: sheet.id, name: sheet.name })}
+                          className="px-3 py-1 text-sm btn-danger rounded"
+                        >
+                          删除
+                        </button>
                       </div>
                     </div>
-                    <div className="flex gap-2 ml-4">
-                      <button
-                        onClick={() => handleLoadSheet(sheet.id)}
-                        className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
-                      >
-                        加载
-                      </button>
-                      <button
-                        onClick={() => handleExportSheet(sheet.id, sheet.name)}
-                        className="px-3 py-1 text-sm bg-green-500 text-white rounded hover:bg-green-600"
-                      >
-                        导出
-                      </button>
-                      <button
-                        onClick={() => handleDeleteSheet(sheet.id, sheet.name)}
-                        className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600"
-                      >
-                        删除
-                      </button>
-                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+                ))}
+              </div>
+            )}
+          </div>
 
-        {/* Footer */}
-        <div className="px-6 py-3 border-t border-gray-200 text-sm text-gray-500">
-          共 {filteredSheets.length} 条记录
+          <div className="px-6 py-3 border-t border-gray-200 text-sm text-gray-500">共 {filteredSheets.length} 条记录</div>
         </div>
       </div>
-    </div>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="确认删除询价单?"
+        description={deleteTarget ? `将永久删除「${deleteTarget.name}」，该操作不可恢复。` : ''}
+        confirmText="删除"
+        cancelText="取消"
+        danger
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => void confirmDeleteSheet()}
+      />
+
+      <ConfirmDialog
+        open={clearConfirmOpen}
+        title="确认清空历史记录?"
+        description="将清空当前会话历史，操作不可恢复。"
+        confirmText="确认清空"
+        cancelText="取消"
+        danger
+        onCancel={() => setClearConfirmOpen(false)}
+        onConfirm={() => {
+          setClearConfirmOpen(false);
+          void onClearHistory?.();
+          void loadSheets();
+        }}
+      />
+    </>
   );
 };
 
 export default HistoryPanel;
+

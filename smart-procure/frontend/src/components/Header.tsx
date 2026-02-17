@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useTabsStore } from '../stores/useTabsStore';
@@ -28,13 +28,9 @@ const toTitle = (type: NotificationType) => {
 };
 
 const formatNotificationTime = (value?: string | null): string => {
-  if (!value) {
-    return '--';
-  }
+  if (!value) return '--';
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return '--';
-  }
+  if (Number.isNaN(date.getTime())) return '--';
   return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
 };
 
@@ -74,28 +70,65 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
   const { tabs, activeTabId, updateTab, isLoading } = useTabsStore();
 
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const [notifications, setNotifications] = useState<NotificationDTO[]>([]);
   const [notificationLoading, setNotificationLoading] = useState(false);
+
   const notificationRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<EventSource | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const unreadCount = notifications.filter((n) => n.status === 'unread').length;
 
-  const clearReconnectTimer = () => {
+  const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current !== null) {
       window.clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
     }
-  };
+  }, []);
 
-  const closeStream = () => {
+  const closeStream = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.close();
       streamRef.current = null;
     }
-  };
+  }, []);
+
+  const connectNotificationStream = useCallback(() => {
+    clearReconnectTimer();
+    closeStream();
+
+    const url = getNotificationStreamUrl();
+    if (!url.includes('token=') || url.endsWith('token=')) {
+      return;
+    }
+
+    const stream = new EventSource(url);
+    streamRef.current = stream;
+
+    stream.addEventListener('notification', (event: MessageEvent<string>) => {
+      try {
+        const payload = JSON.parse(event.data) as NotificationDTO;
+        if (!payload || typeof payload.id !== 'number') return;
+        setNotifications((prev) => upsertNotification(prev, payload));
+        if (payload.status === 'unread') {
+          showIncomingNotificationToast(payload);
+        }
+      } catch (error) {
+        console.error('Failed to parse notification SSE payload:', error);
+      }
+    });
+
+    stream.onerror = () => {
+      closeStream();
+      clearReconnectTimer();
+      reconnectTimerRef.current = window.setTimeout(() => {
+        connectNotificationStream();
+      }, STREAM_RECONNECT_DELAY_MS);
+    };
+  }, [clearReconnectTimer, closeStream]);
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (activeTab) {
@@ -105,7 +138,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
 
   const handleDownload = async () => {
     if (!activeTab) {
-      toast.error('当前没有活动的表格可导出');
+      toast.error('当前没有可导出的表格');
       return;
     }
 
@@ -170,44 +203,13 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
     }
   };
 
-  const connectNotificationStream = () => {
-    clearReconnectTimer();
-    closeStream();
-
-    const url = getNotificationStreamUrl();
-    if (!url.includes('token=') || url.endsWith('token=')) {
-      return;
-    }
-
-    const stream = new EventSource(url);
-    streamRef.current = stream;
-
-    stream.addEventListener('notification', (event: MessageEvent<string>) => {
-      try {
-        const payload = JSON.parse(event.data) as NotificationDTO;
-        if (!payload || typeof payload.id !== 'number') return;
-        setNotifications((prev) => upsertNotification(prev, payload));
-        if (payload.status === 'unread') {
-          showIncomingNotificationToast(payload);
-        }
-      } catch (error) {
-        console.error('Failed to parse notification SSE payload:', error);
-      }
-    });
-
-    stream.onerror = () => {
-      closeStream();
-      clearReconnectTimer();
-      reconnectTimerRef.current = window.setTimeout(() => {
-        connectNotificationStream();
-      }, STREAM_RECONNECT_DELAY_MS);
-    };
-  };
-
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
         setShowNotifications(false);
+      }
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setShowUserMenu(false);
       }
     };
 
@@ -250,7 +252,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
       clearReconnectTimer();
       closeStream();
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, clearReconnectTimer, closeStream, connectNotificationStream]);
 
   const statusLabel = (status: NotificationStatus) => {
     if (status === 'unread') return '未读';
@@ -263,6 +265,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
       <div className="flex items-center gap-4">
         <button
           onClick={onToggleSidebar}
+          aria-label="切换 AI 助手"
           className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-md transition-colors lg:hidden"
         >
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -298,7 +301,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
               className="bg-transparent border-none focus:ring-0 text-gray-700 font-medium text-sm w-full text-center p-0 placeholder-gray-400"
               placeholder="未命名询价单"
             />
-            <div className="w-2 h-2 rounded-full bg-emerald-500 ml-2" title="Auto-saved" />
+            <div className="w-2 h-2 rounded-full bg-emerald-500 ml-2" title="已自动保存" />
           </div>
         ) : (
           <span className="text-gray-400 text-sm italic">No active sheet</span>
@@ -311,36 +314,28 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
             onClick={() => {
               void handleDownload();
             }}
+            aria-label="导出 Excel"
             className="p-2 text-gray-500 hover:text-emerald-600 hover:bg-gray-100 rounded-full transition-colors"
             title="导出 Excel"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-              />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
             </svg>
           </button>
 
           <div className="relative" ref={notificationRef}>
             <button
-              onClick={() => setShowNotifications(!showNotifications)}
+              onClick={() => setShowNotifications((prev) => !prev)}
+              aria-label="查看通知"
               className={`p-2 rounded-full transition-colors ${showNotifications ? 'bg-gray-100 text-emerald-600' : 'text-gray-500 hover:text-emerald-600 hover:bg-gray-100'}`}
               title="通知"
             >
               <div className="relative">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
-                  />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                 </svg>
                 {unreadCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[10px] leading-4 text-center">
+                  <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-xs leading-4 text-center">
                     {unreadCount > 99 ? '99+' : unreadCount}
                   </span>
                 )}
@@ -385,11 +380,9 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
                               {toTitle(notification.type)}
                             </span>
                             <div className="flex items-center gap-2">
-                              <span className="text-[11px] text-gray-400">
-                                {formatNotificationTime(notification.created_at)}
-                              </span>
+                              <span className="text-xs text-gray-400">{formatNotificationTime(notification.created_at)}</span>
                               <span
-                                className={`text-[10px] px-1.5 py-0.5 rounded ${
+                                className={`text-xs px-1.5 py-0.5 rounded ${
                                   isUnread
                                     ? 'bg-blue-100 text-blue-700'
                                     : isArchived
@@ -426,28 +419,47 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
           </div>
         </div>
 
-        <div className="flex items-center gap-3 pl-1">
+        <div className="flex items-center gap-3 pl-1" ref={userMenuRef}>
           <div className="text-right hidden sm:block">
             <div className="text-sm font-medium text-gray-700">{user?.display_name || user?.username}</div>
             <div className="text-xs text-gray-400">采购专员</div>
           </div>
-          <div className="relative group">
-            <button className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center font-medium shadow-md border-2 border-white cursor-pointer">
+          <div className="relative">
+            <button
+              aria-label="打开用户菜单"
+              onClick={() => setShowUserMenu((prev) => !prev)}
+              className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center font-medium shadow-md border-2 border-white cursor-pointer"
+            >
               {(user?.username?.charAt(0) ?? '?').toUpperCase()}
             </button>
 
-            <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-100 py-1 hidden group-hover:block hover:block transform origin-top-right transition-all">
-              <div className="px-4 py-2 border-b border-gray-50">
-                <p className="text-sm font-medium text-gray-900 truncate">{user?.display_name || user?.username}</p>
-                <p className="text-xs text-gray-500 truncate">{user?.username}</p>
+            {showUserMenu && (
+              <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50">
+                <div className="px-4 py-2 border-b border-gray-50">
+                  <p className="text-sm font-medium text-gray-900 truncate">{user?.display_name || user?.username}</p>
+                  <p className="text-xs text-gray-500 truncate">{user?.username}</p>
+                </div>
+                <button
+                  type="button"
+                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  个人中心
+                </button>
+                <button
+                  type="button"
+                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  设置
+                </button>
+                <div className="border-t border-gray-50 my-1" />
+                <button
+                  onClick={logout}
+                  className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                >
+                  退出登录
+                </button>
               </div>
-              <a href="#" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">个人中心</a>
-              <a href="#" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">设置</a>
-              <div className="border-t border-gray-50 my-1"></div>
-              <button onClick={logout} className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50">
-                退出登录
-              </button>
-            </div>
+            )}
           </div>
         </div>
       </div>
@@ -456,3 +468,4 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
 };
 
 export default Header;
+

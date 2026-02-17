@@ -6,7 +6,6 @@ import TabBar from './components/TabBar';
 import HistoryPanel from './components/HistoryPanel';
 import SupplierPanel from './components/SupplierPanel';
 import { RecommendPanel } from './components/RecommendPanel';
-import { Toast } from './components/Toast';
 import { useProcureState } from './hooks/useProcureState';
 import { useTabsStore } from './stores/useTabsStore';
 import { useAuthStore } from './stores/useAuthStore';
@@ -14,7 +13,7 @@ import { useAutoSave } from './hooks/useAutoSave';
 import { AUTH_EXPIRED_EVENT } from './utils/api';
 import AuthPage from './pages/AuthPage';
 
-import { Toaster } from 'sonner';
+import { toast, Toaster } from 'sonner';
 
 function App() {
   const { initializeTabs, isLoading, activeTabId, clearTabs } = useTabsStore();
@@ -36,19 +35,19 @@ function App() {
   const [showSuppliers, setShowSuppliers] = useState(false);
   const [showRecommend, setShowRecommend] = useState(false);
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
-  const [showChat, setShowChat] = useState(true);
+  const [showChat, setShowChat] = useState(() => window.innerWidth >= 1024);
   const [isSaving, setIsSaving] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
 
   const onSave = async () => {
     setIsSaving(true);
     try {
       const result = await handleManualSave();
       if (!result.success) {
-        setToast({
-          message: result.conflict ? '检测到版本冲突，已保留本地改动' : '保存失败',
-          type: result.conflict ? 'info' : 'error',
-        });
+        if (result.conflict) {
+          toast.info('检测到版本冲突，已保留本地改动');
+        } else {
+          toast.error('保存失败');
+        }
       }
     } finally {
       setIsSaving(false);
@@ -61,7 +60,7 @@ function App() {
 
   useEffect(() => {
     const handleAuthExpired = () => {
-      setToast({ message: '登录已过期，请重新登录', type: 'error' });
+      toast.error('登录已过期，请重新登录');
       setTimeout(() => {
         logout();
         clearTabs();
@@ -112,6 +111,7 @@ function App() {
       showChat={showChat}
       onToggleChat={() => setShowChat(!showChat)}
       showRightPanel={showRecommend}
+      onToggleRightPanel={() => setShowRecommend(!showRecommend)}
       sidebarContent={
         <div className="w-16 flex-shrink-0 flex flex-col h-full bg-gray-50 border-r border-gray-200">
           <TabBar
@@ -131,13 +131,6 @@ function App() {
             onSave={onSave}
             isSaving={isSaving}
           />
-          {toast && (
-            <Toast
-              message={toast.message}
-              type={toast.type}
-              onClose={() => setToast(null)}
-            />
-          )}
           <Toaster position="top-center" richColors />
         </div>
       }

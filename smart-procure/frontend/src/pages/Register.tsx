@@ -116,7 +116,7 @@ export default function Register({ onSwitchToLogin }: RegisterProps) {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-green-500 text-white py-2 rounded-md hover:bg-green-600 disabled:opacity-50"
+            className="w-full btn-primary py-2 rounded-md disabled:opacity-50"
           >
             {loading ? '注册中...' : '注册'}
           </button>
@@ -125,7 +125,7 @@ export default function Register({ onSwitchToLogin }: RegisterProps) {
           已有账号？
           <button
             onClick={onSwitchToLogin}
-            className="text-blue-500 hover:underline ml-1"
+            className="text-emerald-600 hover:underline ml-1"
           >
             立即登录
           </button>
