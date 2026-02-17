@@ -79,14 +79,14 @@ const TabBar: React.FC<TabBarProps> = ({ onHistoryClick, onSupplierClick, onReco
               className={`w-10 h-10 flex items-center justify-center rounded-lg text-xs font-medium transition-colors relative group ${
                 activeTabId === tab.id ? 'bg-emerald-100 text-emerald-700 border border-emerald-300' : 'text-gray-600 hover:bg-gray-100'
               }`}
-              title={tab.name}
-              aria-label={`切换到标签 ${index + 1}`}
+              title={tab.name || `标签 ${index + 1}`}
+              aria-label={`切换到标签: ${tab.name || index + 1}`}
             >
-              {index + 1}
+              {tab.name ? tab.name.slice(0, 2) : index + 1}
               {tab.isDirty && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-orange-500 rounded-full" />}
               <span
                 onClick={(e) => void handleCloseTab(tab.id, e)}
-                className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full text-xs items-center justify-center hidden group-hover:flex cursor-pointer"
+                className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full text-xs items-center justify-center hidden group-hover:flex cursor-pointer hover:bg-red-600"
                 aria-label="关闭标签"
               >
                 ×

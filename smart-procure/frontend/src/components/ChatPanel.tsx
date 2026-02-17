@@ -134,7 +134,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             >
               <div className="whitespace-pre-wrap leading-relaxed">{msg.content}</div>
             </div>
-            <span className="text-xs text-gray-400 mt-1 ml-1">{msg.role === 'assistant' ? 'AI 助手' : '我'}</span>
+            <span className="text-xs text-gray-400 mt-1.5 ml-1">{msg.role === 'assistant' ? 'AI 助手' : '我'}</span>
           </div>
         ))}
 

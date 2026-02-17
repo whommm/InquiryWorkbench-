@@ -304,7 +304,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
             <div className="w-2 h-2 rounded-full bg-emerald-500 ml-2" title="已自动保存" />
           </div>
         ) : (
-          <span className="text-gray-400 text-sm italic">No active sheet</span>
+          <span className="text-gray-400 text-sm">暂无活动表格</span>
         )}
       </div>
 
@@ -350,7 +350,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
                     onClick={() => {
                       void handleMarkAllRead();
                     }}
-                    className="text-xs text-emerald-600 cursor-pointer hover:underline"
+                    className="text-sm text-emerald-600 cursor-pointer hover:underline"
                     disabled={unreadCount === 0}
                   >
                     全部已读

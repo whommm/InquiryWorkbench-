@@ -161,7 +161,7 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
           </div>
         ) : productInfo ? (
           <div className="mb-3 bg-emerald-50 p-3 rounded-lg border border-emerald-100">
-            <h3 className="font-medium text-gray-900 text-xs mb-2 flex items-center gap-1">
+            <h3 className="font-medium text-gray-900 text-sm mb-2 flex items-center gap-1">
               <span className="w-1 h-3 bg-emerald-500 rounded-full" />当前选中产品
             </h3>
             <div className="space-y-1 text-xs">
@@ -182,7 +182,7 @@ export const RecommendPanel: React.FC<RecommendPanelProps> = ({
           <div className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-lg flex items-center gap-2 text-xs">{error}</div>
         ) : recommendations.length > 0 ? (
           <div className="space-y-3">
-            <h3 className="font-medium text-gray-900 text-xs flex items-center gap-1"><span className="w-1 h-3 bg-emerald-500 rounded-full" />推荐供应商 ({recommendations.length})</h3>
+            <h3 className="font-medium text-gray-900 text-sm flex items-center gap-1"><span className="w-1 h-3 bg-emerald-500 rounded-full" />推荐供应商 ({recommendations.length})</h3>
             <div className="space-y-2">
               {recommendations.map((rec) => (
                 <div key={rec.supplier_id ?? `${rec.company_name}-${rec.rank}`} className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow">

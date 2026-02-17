@@ -157,8 +157,14 @@ const HistoryPanel = ({ isOpen, onClose, onClearHistory }: HistoryPanelProps) =>
             {loading ? (
               <div className="text-center text-gray-500 py-8">加载中...</div>
             ) : filteredSheets.length === 0 ? (
-              <div className="text-center text-gray-500 py-8">
-                {searchQuery ? '没有找到匹配的询价单' : '暂无历史记录'}
+              <div className="flex flex-col items-center justify-center py-16 text-gray-500">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                  <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+                <p className="font-medium text-gray-700 mb-1">{searchQuery ? '没有找到匹配的询价单' : '暂无历史记录'}</p>
+                <p className="text-sm text-gray-400">{searchQuery ? '请尝试其他关键词' : '创建新的询价单后将显示在这里'}</p>
               </div>
             ) : (
               <div className="space-y-3">

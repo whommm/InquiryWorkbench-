@@ -88,6 +88,20 @@ const Layout: React.FC<LayoutProps> = ({
             }`}
             style={{ width: !showChat ? 0 : `${chatWidth}px` }}
           >
+            {showChat && (
+              <button
+                type="button"
+                onClick={onToggleChat}
+                aria-label="收起 AI 助手"
+                className="absolute top-2 right-3 z-30 h-7 w-7 rounded-md border border-gray-200 bg-white text-gray-500 hover:text-emerald-600 hover:border-emerald-200 hover:bg-emerald-50 transition-colors"
+                title="收起助手"
+              >
+                <svg className="mx-auto h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+            )}
+
             {chatPanel}
 
             {showChat && (
