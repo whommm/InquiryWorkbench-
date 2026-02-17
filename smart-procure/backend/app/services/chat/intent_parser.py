@@ -200,11 +200,16 @@ def extract_brand_from_message(message: str, sheet_data: List[List[Any]]) -> Opt
 
 
 def build_smart_context(message: str, sheet_data: List[List[Any]], max_rows: int = 50) -> Dict[str, Any]:
+    import logging
+    logger = logging.getLogger(__name__)
+
     if not sheet_data or len(sheet_data) < 2:
         return {"brand_context": None, "relevant_rows": [], "total_matched": 0}
 
     brand_context = extract_brand_from_message(message, sheet_data)
     potential_models = extract_models_from_message(message, sheet_data)
+    logger.warning("[DEBUG] brand_context=%s, potential_models=%s", brand_context, potential_models)
+
     relevant_rows_dict: Dict[int, Dict[str, Any]] = {}
 
     for model in potential_models:
@@ -222,6 +227,25 @@ def build_smart_context(message: str, sheet_data: List[List[Any]], max_rows: int
 
     # 只有当用户消息中没有具体产品名称时，才按品牌匹配所有产品
     # 如果已经有模糊匹配的结果，说明用户提到了具体产品，不需要按品牌扩展
+    logger.warning("[DEBUG] before brand expand: relevant_rows_dict keys=%s", list(relevant_rows_dict.keys()))
+
+    # 如果没有型号匹配，尝试用消息中的关键词匹配产品名称
+    if not relevant_rows_dict:
+        words = re.split(r"[\s,，、；;]+", message)
+        keywords = [w.strip() for w in words if len(w.strip()) >= 2]
+        if keywords:
+            matches = fuzzy_match_rows(
+                sheet_data,
+                keywords[0],  # 用第一个关键词匹配
+                brand_filter=brand_context,
+                threshold=80.0,
+                max_results=10,
+            )
+            for match in matches:
+                relevant_rows_dict[match["row"]] = match
+            logger.warning("[DEBUG] after keyword match: keywords=%s, matched=%s", keywords, list(relevant_rows_dict.keys()))
+
+    # 只有当完全没有匹配结果时，才按品牌扩展所有产品
     if brand_context and not relevant_rows_dict:
         schema = build_sheet_schema(sheet_data)
         cols = schema.get("item_columns") or {}
