@@ -14,7 +14,6 @@ interface SheetListItem {
 interface HistoryPanelProps {
   isOpen: boolean;
   onClose: () => void;
-  onRestoreHistory?: (history: any) => void;
   onClearHistory?: () => Promise<void>;
 }
 

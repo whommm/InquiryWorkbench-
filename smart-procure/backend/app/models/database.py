@@ -1,17 +1,17 @@
-"""
+﻿"""
 Database models for SmartProcure
 """
 from sqlalchemy import create_engine, Column, String, Integer, Float, DateTime, JSON, ForeignKey, Text, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from datetime import datetime
 import os
 import uuid
+from ..core.datetime_utils import utc_now
 
-# Database configuration - 强制要求环境变量
+# Database configuration - 寮哄埗瑕佹眰鐜鍙橀噺
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL 环境变量未设置，请在 .env 文件中配置")
+    raise RuntimeError("DATABASE_URL environment variable is not set. Configure it in .env.")
 
 # Create engine and session
 engine = create_engine(DATABASE_URL)
@@ -20,7 +20,7 @@ Base = declarative_base()
 
 
 class User(Base):
-    """用户模型"""
+    """鐢ㄦ埛妯″瀷"""
     __tablename__ = "users"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -29,9 +29,9 @@ class User(Base):
     display_name = Column(String(100))
     role = Column(String(20), nullable=False, default="user", server_default="user", index=True)
 
-    # 时间戳
-    created_at = Column(DateTime, default=datetime.utcnow)
-    last_login_at = Column(DateTime)
+    # 鏃堕棿鎴?
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+    last_login_at = Column(DateTime(timezone=True))
 
 
 class InquirySheet(Base):
@@ -49,8 +49,8 @@ class InquirySheet(Base):
     completion_rate = Column(Float, default=0.0)
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
 
 class Supplier(Base):
@@ -62,9 +62,9 @@ class Supplier(Base):
     # Core fields
     company_name = Column(String, nullable=False, unique=True)
     contact_phone = Column(String, nullable=False)
-    owner = Column(String, nullable=False, default="系统自动")
+    owner = Column(String, nullable=False, default="绯荤粺鑷姩")
 
-    # 渠道标签 - 记录是谁添加的这个供应商
+    # 娓犻亾鏍囩 - 璁板綍鏄皝娣诲姞鐨勮繖涓緵搴斿晢
     created_by = Column(String(36), ForeignKey("users.id"), index=True)
 
     # Extended fields
@@ -73,32 +73,32 @@ class Supplier(Base):
 
     # Statistics
     quote_count = Column(Integer, default=0)
-    last_quote_date = Column(DateTime)
+    last_quote_date = Column(DateTime(timezone=True))
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
 
 class SupplierProduct(Base):
-    """供应商-产品关联表，记录供应商报价过的产品"""
+    """Supplier product relation model storing historical quoted products."""
     __tablename__ = "supplier_products"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     supplier_id = Column(Integer, ForeignKey("suppliers.id"), nullable=False, index=True)
 
-    # 产品信息（完整保存）
+    # 浜у搧淇℃伅锛堝畬鏁翠繚瀛橈級
     product_name = Column(String, index=True)
     product_model = Column(String, index=True)
     brand = Column(String, index=True)
 
-    # 报价信息
+    # 鎶ヤ环淇℃伅
     last_price = Column(Float)
     quote_count = Column(Integer, default=1)
 
-    # 时间戳
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # 鏃堕棿鎴?
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
 
 class Notification(Base):
@@ -109,7 +109,7 @@ class Notification(Base):
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     message = Column(Text, nullable=False)
     type = Column(String(20), nullable=False, default="info", server_default="info")
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False, index=True)
 
 
 def _ensure_legacy_columns():
@@ -177,3 +177,4 @@ def get_db_session():
         yield db
     finally:
         db.close()
+

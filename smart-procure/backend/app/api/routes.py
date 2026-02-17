@@ -2,7 +2,7 @@
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from ..models.types import ChatRequest, ChatResponse, UpdateAction
-from ..models.database import get_db, init_db, User
+from ..models.database import get_db, User
 from ..services.supplier_service import SupplierService
 from ..services.excel_core import process_update
 from ..services.web_search import search_suppliers_online, format_search_results
@@ -29,19 +29,18 @@ from ..services.sheet_schema import (
     fuzzy_match_rows,
 )
 from ..auth.utils import get_current_user
+import logging
 import json
 import pandas as pd
 import io
 import re
 
 router = APIRouter()
-
-# Initialize database on startup
-init_db()
+logger = logging.getLogger(__name__)
 
 def get_sheet_state_summary(sheet_data):
     if not sheet_data or len(sheet_data) < 2 or not isinstance(sheet_data[0], list):
-        return "空"
+        return "empty"
 
     schema = build_sheet_schema(sheet_data)
     slots = schema.get("slots") or {}
@@ -64,7 +63,7 @@ def get_sheet_state_summary(sheet_data):
 
     def _has_price(row, slot_num: int) -> bool:
         slot_map = slots.get(slot_num) or {}
-        price_idx = slot_map.get("单价")
+        price_idx = slot_map.get("鍗曚环")
         if not isinstance(price_idx, int):
             return False
         v = row[price_idx] if isinstance(row, list) and price_idx < len(row) else None
@@ -89,37 +88,37 @@ def get_sheet_state_summary(sheet_data):
             continue
         got = sum(1 for n in slot_nums if _has_price(row, n))
         total = len(slot_nums)
-        bkey = brand or "未填品牌"
+        bkey = brand or "鏈～鍝佺墝"
         stat = per_brand.setdefault(bkey, {"items": 0, "got": 0, "total": 0})
         stat["items"] += 1
         stat["got"] += got
         stat["total"] += total
 
-        base = f"行{i}: {name or '未填名称'}"
+        base = f"row {i}: {name or 'N/A'}"
         if brand:
-            base += f" | 品牌:{brand}"
+            base += f" | 鍝佺墝:{brand}"
         if model:
-            base += f" | 型号:{model}"
-        base += f" | 已询:{got}/{total}"
+            base += f" | 鍨嬪彿:{model}"
+        base += f" | 宸茶:{got}/{total}"
         detail_parts.append(base)
         if len(detail_parts) >= 12:
             break
 
     brand_parts = []
     for brand, stat in sorted(per_brand.items(), key=lambda kv: (-kv[1]["items"], kv[0])):
-        brand_parts.append(f"{brand} {stat['items']}项 已询{stat['got']}/{stat['total']}")
+        brand_parts.append(f"{brand} {stat['items']}椤?宸茶{stat['got']}/{stat['total']}")
         if len(brand_parts) >= 6:
             break
 
-    slot_text = f"槽位数:{len(slot_nums)}"
-    brand_text = "；".join(brand_parts) if brand_parts else "无"
-    detail_text = "；".join(detail_parts) if detail_parts else "无"
-    return f"{slot_text} | 品牌汇总:{brand_text} | 明细:{detail_text}"
+    slot_text = f"妲戒綅鏁?{len(slot_nums)}"
+    brand_text = " | ".join(brand_parts) if brand_parts else "none"
+    detail_text = " | ".join(detail_parts) if detail_parts else "none"
+    return f"{slot_text} | brands:{brand_text} | details:{detail_text}"
 
 def get_pending_summary(sheet_data):
     summary = []
     if not sheet_data or len(sheet_data) < 2:
-        return "空"
+        return "empty"
 
     schema = build_sheet_schema(sheet_data)
     headers = schema.get("headers") or []
@@ -139,19 +138,19 @@ def get_pending_summary(sheet_data):
         if label.strip() == "" and spec_text.strip() == "":
             continue
         if spec_text.strip():
-            summary.append(f"行{i}: {label} ({spec_text})")
+            summary.append(f"row {i}: {label} ({spec_text})")
         else:
-            summary.append(f"行{i}: {label}")
+            summary.append(f"row {i}: {label}")
         if i >= 8:
             break
     if not summary and headers:
-        return "空"
-    return "; ".join(summary) if summary else "空"
+        return "empty"
+    return "; ".join(summary) if summary else "empty"
 
 
 def build_candidate_rows_summary(sheet_data, rows: list) -> str:
     if not sheet_data or not rows:
-        return "无"
+        return "none"
     schema = build_sheet_schema(sheet_data)
     cols = schema.get("item_columns") or {}
     name_col = cols.get("name")
@@ -168,21 +167,21 @@ def build_candidate_rows_summary(sheet_data, rows: list) -> str:
         name = row[name_col] if isinstance(name_col, int) and name_col < len(row) else ""
         brand = row[brand_col] if isinstance(brand_col, int) and brand_col < len(row) else ""
         spec = row[spec_col] if isinstance(spec_col, int) and spec_col < len(row) else ""
-        text = f"行{r}: {name}"
+        text = f"row {r}: {name}"
         if brand:
-            text += f" | 品牌: {brand}"
+            text += f" | 鍝佺墝: {brand}"
         if spec:
-            text += f" | 规格: {spec}"
+            text += f" | 瑙勬牸: {spec}"
         parts.append(text)
-    return "; ".join(parts) if parts else "无"
+    return "; ".join(parts) if parts else "none"
 
 
 def extract_models_from_message(message: str, sheet_data: list) -> list:
-    """从用户消息中提取可能的型号"""
+    """Extract possible model tokens from user message."""
     if not message or not sheet_data or len(sheet_data) < 2:
         return []
 
-    # 获取表格中所有的型号
+    # 鑾峰彇琛ㄦ牸涓墍鏈夌殑鍨嬪彿
     schema = build_sheet_schema(sheet_data)
     cols = schema.get("item_columns") or {}
     model_col = cols.get("model")
@@ -190,7 +189,7 @@ def extract_models_from_message(message: str, sheet_data: list) -> list:
     if not isinstance(model_col, int):
         return []
 
-    # 提取表格中的所有型号
+    # 鎻愬彇琛ㄦ牸涓殑鎵€鏈夊瀷鍙?
     table_models = []
     for row in sheet_data[1:]:
         if isinstance(row, list) and model_col < len(row):
@@ -198,19 +197,19 @@ def extract_models_from_message(message: str, sheet_data: list) -> list:
             if model and str(model).strip():
                 table_models.append(str(model).strip())
 
-    # 从消息中查找可能的型号（使用模糊匹配）
+    # 浠庢秷鎭腑鏌ユ壘鍙兘鐨勫瀷鍙凤紙浣跨敤妯＄硦鍖归厤锛?
     potential_models = []
-    words = re.split(r'[\s,，、]+', message)
+    words = re.split(r'[\s,锛屻€乚+', message)
 
     for word in words:
         word = word.strip()
         if not word or len(word) < 3:
             continue
-        # 检查是否与表格中的型号相似
+        # 妫€鏌ユ槸鍚︿笌琛ㄦ牸涓殑鍨嬪彿鐩镐技
         for table_model in table_models:
             from ..services.sheet_schema import fuzzy_match_score
             score = fuzzy_match_score(word, table_model)
-            if score >= 70:  # 相似度阈值
+            if score >= 70:  # 鐩镐技搴﹂槇鍊?
                 if word not in potential_models:
                     potential_models.append(word)
                 break
@@ -219,11 +218,11 @@ def extract_models_from_message(message: str, sheet_data: list) -> list:
 
 
 def extract_brand_from_message(message: str, sheet_data: list) -> Optional[str]:
-    """从用户消息中提取品牌"""
+    """浠庣敤鎴锋秷鎭腑鎻愬彇鍝佺墝"""
     if not message or not sheet_data or len(sheet_data) < 2:
         return None
 
-    # 获取表格中所有的品牌
+    # 鑾峰彇琛ㄦ牸涓墍鏈夌殑鍝佺墝
     schema = build_sheet_schema(sheet_data)
     cols = schema.get("item_columns") or {}
     brand_col = cols.get("brand")
@@ -231,7 +230,7 @@ def extract_brand_from_message(message: str, sheet_data: list) -> Optional[str]:
     if not isinstance(brand_col, int):
         return None
 
-    # 提取表格中的所有品牌
+    # 鎻愬彇琛ㄦ牸涓殑鎵€鏈夊搧鐗?
     table_brands = set()
     for row in sheet_data[1:]:
         if isinstance(row, list) and brand_col < len(row):
@@ -239,7 +238,7 @@ def extract_brand_from_message(message: str, sheet_data: list) -> Optional[str]:
             if brand and str(brand).strip():
                 table_brands.add(str(brand).strip())
 
-    # 从消息中查找品牌
+    # 浠庢秷鎭腑鏌ユ壘鍝佺墝
     for brand in table_brands:
         if brand in message:
             return brand
@@ -249,33 +248,33 @@ def extract_brand_from_message(message: str, sheet_data: list) -> Optional[str]:
 
 def build_smart_context(message: str, sheet_data: list, max_rows: int = 50) -> dict:
     """
-    构建智能上下文注入数据
+    鏋勫缓鏅鸿兘涓婁笅鏂囨敞鍏ユ暟鎹?
 
     Args:
-        message: 用户消息
-        sheet_data: 表格数据
-        max_rows: 最多注入的行数
+        message: 鐢ㄦ埛娑堟伅
+        sheet_data: 琛ㄦ牸鏁版嵁
+        max_rows: 鏈€澶氭敞鍏ョ殑琛屾暟
 
     Returns:
-        包含品牌上下文和相关产品列表的字典
+        鍖呭惈鍝佺墝涓婁笅鏂囧拰鐩稿叧浜у搧鍒楄〃鐨勫瓧鍏?
     """
     if not sheet_data or len(sheet_data) < 2:
         return {"brand_context": None, "relevant_rows": [], "total_matched": 0}
 
-    # 1. 提取品牌和型号
+    # 1. 鎻愬彇鍝佺墝鍜屽瀷鍙?
     brand_context = extract_brand_from_message(message, sheet_data)
     potential_models = extract_models_from_message(message, sheet_data)
 
-    # 2. 使用模糊匹配找到相关行
-    relevant_rows_dict = {}  # 使用字典去重，key为行号
+    # 2. 浣跨敤妯＄硦鍖归厤鎵惧埌鐩稿叧琛?
+    relevant_rows_dict = {}  # 浣跨敤瀛楀吀鍘婚噸锛宬ey涓鸿鍙?
 
-    # 2.1 根据提取的型号进行模糊匹配
+    # 2.1 鏍规嵁鎻愬彇鐨勫瀷鍙疯繘琛屾ā绯婂尮閰?
     for model in potential_models:
         matches = fuzzy_match_rows(
             sheet_data,
             model,
             brand_filter=brand_context,
-            threshold=75.0,  # 降低阈值以支持更多变体
+            threshold=75.0,  # 闄嶄綆闃堝€间互鏀寔鏇村鍙樹綋
             max_results=10
         )
         for match in matches:
@@ -283,7 +282,7 @@ def build_smart_context(message: str, sheet_data: list, max_rows: int = 50) -> d
             if row_num not in relevant_rows_dict:
                 relevant_rows_dict[row_num] = match
 
-    # 2.2 如果识别到品牌，补充该品牌的所有产品
+    # 2.2 濡傛灉璇嗗埆鍒板搧鐗岋紝琛ュ厖璇ュ搧鐗岀殑鎵€鏈変骇鍝?
     if brand_context:
         schema = build_sheet_schema(sheet_data)
         cols = schema.get("item_columns") or {}
@@ -296,22 +295,22 @@ def build_smart_context(message: str, sheet_data: list, max_rows: int = 50) -> d
                 row_brand = row[brand_col]
                 if row_brand and str(row_brand).strip() == brand_context:
                     if i not in relevant_rows_dict:
-                        # 添加该品牌的产品
+                        # 娣诲姞璇ュ搧鐗岀殑浜у搧
                         relevant_rows_dict[i] = {
                             "row": i,
-                            "score": 100.0,  # 品牌匹配给高分
-                            "match_field": "品牌",
+                            "score": 100.0,  # 鍝佺墝鍖归厤缁欓珮鍒?
+                            "match_field": "鍝佺墝",
                             "name": row[cols.get("name")] if isinstance(cols.get("name"), int) and cols.get("name") < len(row) else None,
                             "brand": brand_context,
                             "model": row[cols.get("model")] if isinstance(cols.get("model"), int) and cols.get("model") < len(row) else None,
                             "spec": row[cols.get("spec")] if isinstance(cols.get("spec"), int) and cols.get("spec") < len(row) else None,
                         }
 
-    # 3. 转换为列表并排序
+    # 3. 杞崲涓哄垪琛ㄥ苟鎺掑簭
     relevant_rows = list(relevant_rows_dict.values())
     relevant_rows.sort(key=lambda x: (-x["score"], x["row"]))
 
-    # 4. 限制数量
+    # 4. 闄愬埗鏁伴噺
     relevant_rows = relevant_rows[:max_rows]
 
     return {
@@ -357,46 +356,46 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
     slots = schema.get("slots") or {}
     slot_num = sorted(slots.keys())[0] if slots else None
     if slot_num is not None:
-        required_fields = [k for k in ("单价", "含税", "含运", "货期") if k in slots.get(slot_num, {})]
+        required_fields = [k for k in ("鍗曚环", "鍚◣", "鍚繍", "璐ф湡") if k in slots.get(slot_num, {})]
     else:
-        required_fields = ["单价", "含税", "含运", "货期"]
+        required_fields = ["鍗曚环", "鍚◣", "鍚繍", "璐ф湡"]
 
-    has_price_col = any("单价" in (slot or {}) for slot in (slots.values() if isinstance(slots, dict) else []))
+    has_price_col = any("鍗曚环" in (slot or {}) for slot in (slots.values() if isinstance(slots, dict) else []))
     if not has_price_col:
-        return ChatResponse(action="ASK", content="当前表格未检测到可写入的报价列（例如：单价1/是否含税1/是否含运1/货期1）。请上传包含报价列的询价表，或调整表头命名。")
+        return ChatResponse(action="ASK", content="No writable quote columns detected in this sheet. Please upload a valid inquiry sheet template.")
 
-    # 使用智能上下文注入
+    # 浣跨敤鏅鸿兘涓婁笅鏂囨敞鍏?
     smart_context = build_smart_context(request.message, sheet_data, max_rows=50)
 
     summary = get_pending_summary(sheet_data)
     sheet_state_summary = get_sheet_state_summary(sheet_data)
     history_messages = build_history_messages(request.chat_history)
 
-    # 构建相关行的详细信息（用于注入给AI）
+    # 鏋勫缓鐩稿叧琛岀殑璇︾粏淇℃伅锛堢敤浜庢敞鍏ョ粰AI锛?
     relevant_rows_detail = []
     for row_info in smart_context["relevant_rows"]:
-        # 获取该行的报价槽位状态
+        # 鑾峰彇璇ヨ鐨勬姤浠锋Ы浣嶇姸鎬?
         row_num = row_info["row"]
         slot_status = []
-        for slot_num in sorted(slots.keys())[:3]:  # 最多3个槽位
+        for slot_num in sorted(slots.keys())[:3]:  # 鏈€澶?涓Ы浣?
             slot_map = slots.get(slot_num) or {}
-            price_idx = slot_map.get("单价")
+            price_idx = slot_map.get("鍗曚环")
             if isinstance(price_idx, int) and row_num - 1 < len(sheet_data):
                 row_data = sheet_data[row_num - 1]
                 if isinstance(row_data, list) and price_idx < len(row_data):
                     price_val = row_data[price_idx]
                     has_price = price_val is not None and str(price_val).strip() not in ("", "none", "None")
-                    slot_status.append(f"槽位{slot_num}{'已填' if has_price else '空'}")
+                    slot_status.append(f"slot {slot_num} {'filled' if has_price else 'empty'}")
 
         relevant_rows_detail.append({
-            "行号": row_num,
-            "品牌": row_info.get("brand"),
-            "产品名称": row_info.get("name"),
-            "型号": row_info.get("model"),
-            "规格": row_info.get("spec"),
-            "匹配度": f"{row_info['score']:.0f}%",
-            "匹配字段": row_info.get("match_field"),
-            "报价状态": ", ".join(slot_status) if slot_status else "无槽位"
+            "琛屽彿": row_num,
+            "鍝佺墝": row_info.get("brand"),
+            "浜у搧鍚嶇О": row_info.get("name"),
+            "鍨嬪彿": row_info.get("model"),
+            "瑙勬牸": row_info.get("spec"),
+            "match_score": f"{row_info['score']:.0f}%",
+            "鍖归厤瀛楁": row_info.get("match_field"),
+            "slot_status": ", ".join(slot_status) if slot_status else "no slots",
         })
 
     context = {
@@ -405,7 +404,7 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
         "headers_preview_json": json.dumps(headers_preview, ensure_ascii=False),
         "writable_fields_json": writable_fields_json,
         "required_fields_json": json.dumps(required_fields, ensure_ascii=False),
-        "brand_context": smart_context["brand_context"] or "未识别",
+        "brand_context": smart_context["brand_context"] or "unknown",
         "relevant_rows_json": json.dumps(relevant_rows_detail, ensure_ascii=False),
         "total_relevant_rows": smart_context["total_matched"],
     }
@@ -455,22 +454,22 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
                 ]).strip()
                 return {"supplier": supplier or None}
         except Exception as e:
-            print(f"Supplier lookup error: {e}")
+            logger.warning("Supplier lookup error for name=%s", name, exc_info=e)
 
         return {"supplier": None}
 
     def _web_search_supplier(args: dict) -> dict:
-        """网络搜索品牌的供应商信息"""
+        """缃戠粶鎼滅储鍝佺墝鐨勪緵搴斿晢淇℃伅"""
         brand = args.get("brand")
         if not isinstance(brand, str) or not brand.strip():
-            return {"success": False, "message": "品牌名称不能为空"}
+            return {"success": False, "message": "鍝佺墝鍚嶇О涓嶈兘涓虹┖"}
 
         try:
             results = search_suppliers_online(brand.strip(), max_results=5)
             if not results:
                 return {
                     "success": False,
-                    "message": f"未找到'{brand}'的供应商信息",
+                    "message": f"鏈壘鍒?{brand}'鐨勪緵搴斿晢淇℃伅",
                     "results": []
                 }
 
@@ -482,15 +481,15 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
                 "count": len(results)
             }
         except Exception as e:
-            print(f"Web search error: {e}")
+            logger.warning("Web search error for brand=%s", brand, exc_info=e)
             return {
                 "success": False,
-                "message": f"搜索出错：{str(e)}",
+                "message": f"Search failed: {str(e)}",
                 "results": []
             }
 
     def _web_browse(args: dict) -> dict:
-        """使用浏览器访问网页或搜索"""
+        """浣跨敤娴忚鍣ㄨ闂綉椤垫垨鎼滅储"""
         url = args.get("url")
         action = args.get("action", "browse")
         query = args.get("query")
@@ -504,7 +503,7 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
                         "action": "search",
                         "query": query,
                         "results": result["results"],
-                        "message": f"搜索到 {result['count']} 条结果"
+                        "message": f"Found {result['count']} results",
                     }
                 else:
                     return {"success": False, "error": result["error"]}
@@ -517,40 +516,40 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
                         "action": "browse",
                         "title": result["title"],
                         "content": result["text"][:5000],
-                        "message": f"成功访问页面: {result['title']}"
+                        "message": f"鎴愬姛璁块棶椤甸潰: {result['title']}"
                     }
                 else:
                     return {"success": False, "error": result["error"]}
 
             else:
-                return {"success": False, "error": "请提供 url 或 query 参数"}
+                return {"success": False, "error": "璇锋彁渚?url 鎴?query 鍙傛暟"}
 
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    # ========== 迭代式浏览器工具 ==========
-    # 用于存储当前会话的浏览器 session_id
+    # ========== 杩唬寮忔祻瑙堝櫒宸ュ叿 ==========
+    # 鐢ㄤ簬瀛樺偍褰撳墠浼氳瘽鐨勬祻瑙堝櫒 session_id
     browser_session = {"id": None}
 
     def _browser_start(args: dict) -> dict:
-        """启动浏览器会话"""
+        """Start a browser session."""
         result = browser_create_session()
         if result["success"]:
             browser_session["id"] = result["session_id"]
         return result
 
     def _browser_stop(args: dict) -> dict:
-        """关闭浏览器会话"""
+        """Close the current browser session."""
         if not browser_session["id"]:
-            return {"success": False, "error": "没有活动的浏览器会话"}
+            return {"success": False, "error": "娌℃湁娲诲姩鐨勬祻瑙堝櫒浼氳瘽"}
         result = browser_close_session(browser_session["id"])
         browser_session["id"] = None
         return result
 
     def _browser_goto(args: dict) -> dict:
-        """导航到指定 URL"""
+        """瀵艰埅鍒版寚瀹?URL"""
         if not browser_session["id"]:
-            # 自动创建会话
+            # 鑷姩鍒涘缓浼氳瘽
             start_result = browser_create_session()
             if not start_result["success"]:
                 return start_result
@@ -558,116 +557,113 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
 
         url = args.get("url")
         if not url:
-            return {"success": False, "error": "请提供 url 参数"}
+            return {"success": False, "error": "璇锋彁渚?url 鍙傛暟"}
         return browser_navigate(browser_session["id"], url)
 
     def _browser_click_element(args: dict) -> dict:
-        """点击页面元素"""
+        """鐐瑰嚮椤甸潰鍏冪礌"""
         if not browser_session["id"]:
-            return {"success": False, "error": "请先启动浏览器会话"}
+            return {"success": False, "error": "Please start a browser session first"}
         element = args.get("element")
         if not element:
-            return {"success": False, "error": "请提供 element 参数"}
+            return {"success": False, "error": "璇锋彁渚?element 鍙傛暟"}
         return browser_click(browser_session["id"], element)
 
     def _browser_input(args: dict) -> dict:
-        """在元素中输入文本"""
+        """鍦ㄥ厓绱犱腑杈撳叆鏂囨湰"""
         if not browser_session["id"]:
-            return {"success": False, "error": "请先启动浏览器会话"}
+            return {"success": False, "error": "Please start a browser session first"}
         element = args.get("element")
         text = args.get("text")
         if not element or not text:
-            return {"success": False, "error": "请提供 element 和 text 参数"}
+            return {"success": False, "error": "璇锋彁渚?element 鍜?text 鍙傛暟"}
         return browser_type(browser_session["id"], element, text)
 
     def _browser_get_snapshot(args: dict) -> dict:
-        """获取当前页面快照"""
+        """鑾峰彇褰撳墠椤甸潰蹇収"""
         if not browser_session["id"]:
-            return {"success": False, "error": "请先启动浏览器会话"}
+            return {"success": False, "error": "Please start a browser session first"}
         return browser_snapshot(browser_session["id"])
 
     def _browser_scroll_page(args: dict) -> dict:
-        """滚动页面"""
+        """婊氬姩椤甸潰"""
         if not browser_session["id"]:
-            return {"success": False, "error": "请先启动浏览器会话"}
+            return {"success": False, "error": "Please start a browser session first"}
         direction = args.get("direction", "down")
         return browser_scroll(browser_session["id"], direction)
 
     def _browser_go_back(args: dict) -> dict:
-        """返回上一页"""
+        """Navigate back to previous page."""
         if not browser_session["id"]:
-            return {"success": False, "error": "请先启动浏览器会话"}
+            return {"success": False, "error": "Please start a browser session first"}
         return browser_back(browser_session["id"])
 
-    # 定义所有可用工具
+    # Define all available tools
     all_tools = {
         "locate_row": (
-            {"description": "按物料/品牌/型号或明确行号定位候选行", "args": {"item_name": "str?", "brand": "str?", "model": "str?", "spec": "str?", "target_row": "int?"}},
+            {"description": "Locate candidate rows by name/brand/model/spec", "args": {"item_name": "str?", "brand": "str?", "model": "str?", "spec": "str?", "target_row": "int?"}},
             _locate_row,
         ),
         "get_row_slot_snapshot": (
-            {"description": "获取指定行的slot分组快照", "args": {"row": "int"}},
+            {"description": "Get slot snapshot for a target row", "args": {"row": "int"}},
             _row_snapshot,
         ),
         "supplier_lookup": (
-            {"description": "按人名/简称查供应商字符串（一个单元格）", "args": {"name": "str"}},
+            {"description": "Lookup supplier by name", "args": {"name": "str"}},
             _supplier_lookup,
         ),
         "web_search_supplier": (
-            {"description": "在互联网上搜索品牌的供应商、代理商、经销商信息。当用户询问某个品牌的供应商，或者数据库中没有该品牌的供应商时使用。", "args": {"brand": "str"}},
+            {"description": "Search suppliers on the web by brand", "args": {"brand": "str"}},
             _web_search_supplier,
         ),
         "web_browse": (
-            {"description": "使用浏览器访问网页提取内容，或使用搜索引擎搜索信息。当需要查看具体网页内容或搜索详细信息时使用。", "args": {"url": "str?", "action": "str?", "query": "str?"}},
+            {"description": "Browse a page or run a web search", "args": {"url": "str?", "action": "str?", "query": "str?"}},
             _web_browse,
         ),
-        # 迭代式浏览器工具
         "browser_start": (
-            {"description": "启动浏览器会话，用于迭代式浏览。返回 session_id。", "args": {}},
+            {"description": "Start browser session", "args": {}},
             _browser_start,
         ),
         "browser_stop": (
-            {"description": "关闭浏览器会话", "args": {}},
+            {"description": "Stop browser session", "args": {}},
             _browser_stop,
         ),
         "browser_goto": (
-            {"description": "导航到指定 URL（会自动启动会话）", "args": {"url": "str"}},
+            {"description": "Navigate to URL", "args": {"url": "str"}},
             _browser_goto,
         ),
         "browser_click": (
-            {"description": "点击页面上的元素。element 参数是元素的描述文本或可访问性标签。", "args": {"element": "str"}},
+            {"description": "Click an element", "args": {"element": "str"}},
             _browser_click_element,
         ),
         "browser_input": (
-            {"description": "在输入框中输入文本。element 是输入框描述，text 是要输入的内容。", "args": {"element": "str", "text": "str"}},
+            {"description": "Type into an input element", "args": {"element": "str", "text": "str"}},
             _browser_input,
         ),
         "browser_snapshot": (
-            {"description": "获取当前页面的可访问性快照，用于了解页面结构和内容。", "args": {}},
+            {"description": "Get accessibility snapshot of current page", "args": {}},
             _browser_get_snapshot,
         ),
         "browser_scroll": (
-            {"description": "滚动页面。direction 可以是 'up' 或 'down'。", "args": {"direction": "str?"}},
+            {"description": "Scroll page up/down", "args": {"direction": "str?"}},
             _browser_scroll_page,
         ),
         "browser_back": (
-            {"description": "返回上一页", "args": {}},
+            {"description": "Go back to previous page", "args": {}},
             _browser_go_back,
         ),
     }
 
-    # 根据 enabled_tools 参数选择性注册工具
+    # 鏍规嵁 enabled_tools 鍙傛暟閫夋嫨鎬ф敞鍐屽伐鍏?
     enabled_tools = request.enabled_tools if request.enabled_tools is not None else list(all_tools.keys())
     for tool_name in enabled_tools:
         if tool_name in all_tools:
             spec, fn = all_tools[tool_name]
             tools.register(tool_name, spec, fn)
 
-    # 调试日志
-    import logging
-    logging.warning(f"[DEBUG] 已注册工具: {[t['name'] for t in tools.describe()]}")
-    logging.warning(f"[DEBUG] 用户消息: {request.message}")
-
+    # 璋冭瘯鏃ュ織
+    logger.debug("Registered tools: %s", [t["name"] for t in tools.describe()])
+    logger.debug("User message: %s", request.message)
     agent_out = run_two_stage_agent(
         call_llm=call_llm,
         user_message=request.message,
@@ -678,13 +674,13 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
     )
 
     if agent_out.get("action") == "ASK":
-        return ChatResponse(action="ASK", content=agent_out.get("content") or "请提供更多信息")
+        return ChatResponse(action="ASK", content=agent_out.get("content") or "Please provide more details.")
 
     if agent_out.get("action") == "WRITE":
         updates = agent_out.get("updates")
         if isinstance(updates, list):
             if not updates:
-                return ChatResponse(action="ASK", content="LLM未返回可执行的更新列表")
+                return ChatResponse(action="ASK", content="LLM did not return executable updates.")
 
             current_sheet = sheet_data
             updated_rows = []
@@ -699,22 +695,22 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
 
                 missing = []
                 required = set(required_fields)
-                if "单价" in required and (not data_dict.get("price") and data_dict.get("price") != 0):
-                    missing.append("单价")
-                if "含税" in required and "tax" not in data_dict:
-                    missing.append("含税")
-                if "含运" in required and "shipping" not in data_dict:
-                    missing.append("含运")
-                if "货期" in required and not data_dict.get("delivery_time"):
-                    missing.append("货期")
+                if "鍗曚环" in required and (not data_dict.get("price") and data_dict.get("price") != 0):
+                    missing.append("鍗曚环")
+                if "鍚◣" in required and "tax" not in data_dict:
+                    missing.append("鍚◣")
+                if "鍚繍" in required and "shipping" not in data_dict:
+                    missing.append("鍚繍")
+                if "璐ф湡" in required and not data_dict.get("delivery_time"):
+                    missing.append("璐ф湡")
                 if not data_dict.get("target_row"):
-                    missing.append("行号/物料名称")
+                    missing.append("琛屽彿/鐗╂枡鍚嶇О")
                 if missing:
-                    return ChatResponse(action="ASK", content=f"请补充：{', '.join(missing)}")
+                    return ChatResponse(action="ASK", content=f"璇疯ˉ鍏咃細{', '.join(missing)}")
 
                 lookup_name = data_dict.get("lookup_supplier")
                 if lookup_name and not data_dict.get("supplier"):
-                    # 尝试从数据库查找供应商
+                    # 灏濊瘯浠庢暟鎹簱鏌ユ壘渚涘簲鍟?
                     try:
                         supplier_service = SupplierService(db)
                         results = supplier_service.search_suppliers(str(lookup_name).strip(), limit=1)
@@ -728,7 +724,7 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
                             if supplier_info:
                                 data_dict["supplier"] = supplier_info
                     except Exception as e:
-                        print(f"Supplier lookup failed: {e}")
+                        logger.warning("Supplier lookup failed during batch update", exc_info=e)
 
                 field_names = getattr(UpdateAction, "model_fields", None)
                 if isinstance(field_names, dict):
@@ -741,20 +737,20 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
                 updated_rows.append(update_action.target_row)
 
             if not updated_rows:
-                return ChatResponse(action="ASK", content="更新列表中没有可执行的更新项")
+                return ChatResponse(action="ASK", content="鏇存柊鍒楄〃涓病鏈夊彲鎵ц鐨勬洿鏂伴」")
 
-            # 检查缺失字段并生成提醒
+            # 妫€鏌ョ己澶卞瓧娈靛苟鐢熸垚鎻愰啋
             missing_fields = set()
             for data_dict in updates:
                 if not data_dict.get("supplier"):
-                    missing_fields.add("供应商")
+                    missing_fields.add("supplier")
                 if data_dict.get("shipping") is None:
-                    missing_fields.add("含运")
+                    missing_fields.add("鍚繍")
 
-            # 生成响应消息
-            success_msg = f"✓ 报价已更新 (行 {', '.join(str(r) for r in updated_rows[:10])})"
+            # 鐢熸垚鍝嶅簲娑堟伅
+            success_msg = f"鉁?鎶ヤ环宸叉洿鏂?(琛?{', '.join(str(r) for r in updated_rows[:10])})"
             if missing_fields:
-                reminder = f"\n\n💡 提示：缺少以下信息，如需补充请继续输入：{', '.join(missing_fields)}"
+                reminder = f"\n\n馃挕 鎻愮ず锛氱己灏戜互涓嬩俊鎭紝濡傞渶琛ュ厖璇风户缁緭鍏ワ細{', '.join(missing_fields)}"
                 success_msg += reminder
 
             response = ChatResponse(
@@ -767,7 +763,7 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
 
         data_dict = agent_out.get("data") or {}
         if not isinstance(data_dict, dict):
-            return ChatResponse(action="ASK", content="LLM返回的数据格式不正确")
+            return ChatResponse(action="ASK", content="LLM杩斿洖鐨勬暟鎹牸寮忎笉姝ｇ‘")
 
         explicit_row = extract_row_from_message(request.message)
         if not data_dict.get("target_row") and explicit_row:
@@ -794,36 +790,36 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
                         brand = c.get("brand")
                         model = c.get("model")
                         spec = c.get("spec")
-                        text = f"行{row}: {name or ''}"
+                        text = f"row {row}: {name or ''}"
                         if brand:
-                            text += f" | 品牌:{brand}"
+                            text += f" | 鍝佺墝:{brand}"
                         if model:
-                            text += f" | 型号:{model}"
+                            text += f" | 鍨嬪彿:{model}"
                         if spec:
-                            text += f" | 规格:{spec}"
+                            text += f" | 瑙勬牸:{spec}"
                         lines.append(text)
-                    tip = "；".join(lines) if lines else "存在多个候选行"
-                    return ChatResponse(action="ASK", content=f"匹配到多个候选，请指定第X行或补充型号/规格：{tip}")
+                    tip = " | ".join(lines) if lines else "multiple candidates"
+                    return ChatResponse(action="ASK", content=f"Multiple candidate rows matched. Please specify row number or provide more details. {tip}")
 
         missing = []
         required = set(required_fields)
-        if "单价" in required and (not data_dict.get("price") and data_dict.get("price") != 0):
-            missing.append("单价")
-        if "含税" in required and "tax" not in data_dict:
-            missing.append("含税")
-        if "含运" in required and "shipping" not in data_dict:
-            missing.append("含运")
-        if "货期" in required and not data_dict.get("delivery_time"):
-            missing.append("货期")
+        if "鍗曚环" in required and (not data_dict.get("price") and data_dict.get("price") != 0):
+            missing.append("鍗曚环")
+        if "鍚◣" in required and "tax" not in data_dict:
+            missing.append("鍚◣")
+        if "鍚繍" in required and "shipping" not in data_dict:
+            missing.append("鍚繍")
+        if "璐ф湡" in required and not data_dict.get("delivery_time"):
+            missing.append("璐ф湡")
         if not data_dict.get("target_row"):
-            missing.append("行号/物料名称")
+            missing.append("琛屽彿/鐗╂枡鍚嶇О")
         if missing:
-            return ChatResponse(action="ASK", content=f"请补充：{', '.join(missing)}")
+            return ChatResponse(action="ASK", content=f"璇疯ˉ鍏咃細{', '.join(missing)}")
         
         try:
             lookup_name = data_dict.get("lookup_supplier")
             if lookup_name and not data_dict.get("supplier"):
-                # 尝试从数据库查找供应商
+                # 灏濊瘯浠庢暟鎹簱鏌ユ壘渚涘簲鍟?
                 try:
                     supplier_service = SupplierService(db)
                     results = supplier_service.search_suppliers(str(lookup_name).strip(), limit=1)
@@ -837,7 +833,7 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
                         if supplier_info:
                             data_dict["supplier"] = supplier_info
                 except Exception as e:
-                    print(f"Supplier lookup failed: {e}")
+                    logger.warning("Supplier lookup failed during single update", exc_info=e)
 
             field_names = getattr(UpdateAction, "model_fields", None)
             if isinstance(field_names, dict):
@@ -848,17 +844,17 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
             update_action = UpdateAction(**cleaned)
             new_sheet = process_update(sheet_data, update_action)
 
-            # 检查缺失字段并生成提醒
+            # 妫€鏌ョ己澶卞瓧娈靛苟鐢熸垚鎻愰啋
             missing_fields = []
             if not update_action.supplier:
-                missing_fields.append("供应商")
+                missing_fields.append("supplier")
             if update_action.shipping is None:
-                missing_fields.append("含运")
+                missing_fields.append("鍚繍")
 
-            # 生成响应消息
-            success_msg = f"✓ 报价已更新 (行 {update_action.target_row})"
+            # 鐢熸垚鍝嶅簲娑堟伅
+            success_msg = f"鉁?鎶ヤ环宸叉洿鏂?(琛?{update_action.target_row})"
             if missing_fields:
-                reminder = f"\n\n💡 提示：缺少以下信息，如需补充请继续输入：{', '.join(missing_fields)}"
+                reminder = f"\n\n馃挕 鎻愮ず锛氱己灏戜互涓嬩俊鎭紝濡傞渶琛ュ厖璇风户缁緭鍏ワ細{', '.join(missing_fields)}"
                 success_msg += reminder
 
             return ChatResponse(
@@ -868,11 +864,11 @@ async def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db), cur
                 updated_sheet=new_sheet
             )
         except Exception as e:
-            return ChatResponse(action="ASK", content=f"更新表格失败: {str(e)}")
+            return ChatResponse(action="ASK", content=f"鏇存柊琛ㄦ牸澶辫触: {str(e)}")
 
-    return ChatResponse(action="ASK", content="未知指令")
+    return ChatResponse(action="ASK", content="鏈煡鎸囦护")
 
-# 文件上传大小限制 (10MB)
+# 鏂囦欢涓婁紶澶у皬闄愬埗 (10MB)
 MAX_UPLOAD_SIZE = 10 * 1024 * 1024
 ALLOWED_MIME_TYPES = [
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  # xlsx
@@ -885,19 +881,19 @@ async def upload_file(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # 验证文件扩展名
+    # 楠岃瘉鏂囦欢鎵╁睍鍚?
     if not file.filename.endswith(('.xlsx', '.xls')):
-        raise HTTPException(status_code=400, detail="仅支持 Excel 文件格式 (.xlsx, .xls)")
+        raise HTTPException(status_code=400, detail="浠呮敮鎸?Excel 鏂囦欢鏍煎紡 (.xlsx, .xls)")
 
-    # 验证 MIME 类型
+    # 楠岃瘉 MIME 绫诲瀷
     if file.content_type and file.content_type not in ALLOWED_MIME_TYPES:
-        raise HTTPException(status_code=400, detail="文件类型不正确，请上传 Excel 文件")
+        raise HTTPException(status_code=400, detail="鏂囦欢绫诲瀷涓嶆纭紝璇蜂笂浼?Excel 鏂囦欢")
 
     try:
-        # 读取文件并检查大小
+        # 璇诲彇鏂囦欢骞舵鏌ュぇ灏?
         contents = await file.read()
         if len(contents) > MAX_UPLOAD_SIZE:
-            raise HTTPException(status_code=400, detail="文件大小超过限制 (最大 10MB)")
+            raise HTTPException(status_code=400, detail="鏂囦欢澶у皬瓒呰繃闄愬埗 (鏈€澶?10MB)")
 
         df = pd.read_excel(io.BytesIO(contents))
 
@@ -953,7 +949,7 @@ async def upload_file(
                             "company_name": supplier.company_name,
                             "contact_name": supplier.contact_name,
                             "contact_phone": supplier.contact_phone,
-                            "match_reason": f"品牌匹配: {brand}",
+                            "match_reason": f"鍝佺墝鍖归厤: {brand}",
                             "quote_count": supplier.quote_count,
                             "last_quote_date": supplier.last_quote_date.isoformat() if supplier.last_quote_date else None
                         })
@@ -962,7 +958,7 @@ async def upload_file(
             recommended_suppliers = recommended_suppliers[:10]
 
         except Exception as e:
-            print(f"Failed to analyze suppliers: {e}")
+            logger.warning("Failed to analyze suppliers from uploaded file", exc_info=e)
             # Don't fail the upload if supplier analysis fails
 
         return {
@@ -972,6 +968,7 @@ async def upload_file(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}")
+
 
 
 

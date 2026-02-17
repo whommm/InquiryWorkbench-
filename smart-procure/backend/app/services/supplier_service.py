@@ -6,9 +6,9 @@ import re
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
 from app.models.database import Supplier, InquirySheet, SupplierProduct
 from difflib import SequenceMatcher
+from app.core.datetime_utils import utc_now, ensure_utc
 
 logger = logging.getLogger(__name__)
 
@@ -79,8 +79,8 @@ class SupplierService:
                 merged_tags = list(set(existing_tags + tags))
                 existing.tags = merged_tags
             existing.quote_count += 1
-            existing.last_quote_date = datetime.utcnow()
-            existing.updated_at = datetime.utcnow()
+            existing.last_quote_date = utc_now()
+            existing.updated_at = utc_now()
             self.db.commit()
             self.db.refresh(existing)
             return existing
@@ -94,7 +94,7 @@ class SupplierService:
                 tags=tags or [],
                 created_by=created_by,
                 quote_count=1,
-                last_quote_date=datetime.utcnow()
+                last_quote_date=utc_now()
             )
             self.db.add(new_supplier)
             self.db.commit()
@@ -142,7 +142,7 @@ class SupplierService:
             if price is not None:
                 existing.last_price = price
             existing.quote_count += 1
-            existing.updated_at = datetime.utcnow()
+            existing.updated_at = utc_now()
             self.db.commit()
             self.db.refresh(existing)
             target_record = existing
@@ -592,7 +592,10 @@ class SupplierService:
         """计算时效性分数（0-1）"""
         if not last_date:
             return 0.0
-        days_ago = (datetime.utcnow() - last_date).days
+        normalized_last_date = ensure_utc(last_date)
+        if normalized_last_date is None:
+            return 0.0
+        days_ago = (utc_now() - normalized_last_date).days
         if days_ago <= 7:
             return 1.0
         elif days_ago <= 30:

@@ -7,6 +7,7 @@ interface ChatPanelProps {
   messages: ChatMessage[];
   onSendMessage: (msg: string) => Promise<void>;
   onFileUpload: (file: File) => Promise<void>;
+  onClearHistory: () => Promise<void>;
   isThinking: boolean;
   toolConfigs: ToolConfig[];
   onToolToggle: (toolId: string) => void;
@@ -16,6 +17,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   messages, 
   onSendMessage, 
   onFileUpload, 
+  onClearHistory,
   isThinking, 
   toolConfigs, 
   onToolToggle 
@@ -103,7 +105,11 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         </button>
         <button
           type="button"
-          onClick={() => {}} // TODO: Add clear handler
+          onClick={() => {
+            if (!messages.length || isThinking) return;
+            if (!window.confirm('确定要清空当前会话记录吗？')) return;
+            void onClearHistory();
+          }}
           className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-orange-600 hover:bg-orange-50 rounded-md transition-all disabled:opacity-40 disabled:cursor-not-allowed"
           disabled={isThinking || messages.length === 0}
           title="清空聊天记录"

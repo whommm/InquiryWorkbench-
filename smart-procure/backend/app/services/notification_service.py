@@ -2,9 +2,9 @@
 Notification service for persistent user notifications.
 """
 from typing import List, Dict
-from datetime import datetime
 
-from app.models.database import Notification, get_db_session
+from ..models.database import Notification, get_db_session
+from ..core.datetime_utils import utc_now
 
 
 def add_notification(user_id: str, message: str, type: str = "info") -> None:
@@ -18,7 +18,7 @@ def add_notification(user_id: str, message: str, type: str = "info") -> None:
                 user_id=user_id,
                 message=message,
                 type=(type or "info"),
-                created_at=datetime.utcnow(),
+                created_at=utc_now(),
             )
         )
         db.commit()
@@ -46,4 +46,3 @@ def pop_notifications(db, user_id: str, limit: int = 20) -> List[Dict[str, str]]
         db.delete(row)
     db.commit()
     return notifications
-

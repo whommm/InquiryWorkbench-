@@ -3,8 +3,8 @@ Database service for inquiry sheet operations
 """
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from datetime import datetime
 from app.models.database import InquirySheet
+from app.core.datetime_utils import utc_now
 
 
 class DBService:
@@ -36,7 +36,7 @@ class DBService:
             existing.chat_history = chat_history
             existing.item_count = item_count
             existing.completion_rate = completion_rate
-            existing.updated_at = datetime.utcnow()
+            existing.updated_at = utc_now()
             self.db.commit()
             self.db.refresh(existing)
             return existing

@@ -1,11 +1,11 @@
-from datetime import datetime
-from typing import Optional
+﻿from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..auth.utils import get_current_user
+from ..core.datetime_utils import ensure_utc, utc_now
 from ..models.database import User, get_db
 from ..services.supplier_service import SupplierService
 
@@ -13,10 +13,10 @@ router = APIRouter()
 
 
 class RecommendRequest(BaseModel):
-    product_name: str = Field("", max_length=200, description="产品名称")
-    spec: Optional[str] = Field("", max_length=500, description="规格型号")
-    brand: Optional[str] = Field("", max_length=100, description="品牌")
-    limit: Optional[int] = Field(5, ge=1, le=20, description="返回数量限制")
+    product_name: str = Field("", max_length=200, description="浜у搧鍚嶇О")
+    spec: Optional[str] = Field("", max_length=500, description="瑙勬牸鍨嬪彿")
+    brand: Optional[str] = Field("", max_length=100, description="鍝佺墝")
+    limit: Optional[int] = Field(5, ge=1, le=20, description="杩斿洖鏁伴噺闄愬埗")
 
 
 @router.get("/suppliers/search")
@@ -101,9 +101,11 @@ async def delete_supplier_endpoint(
         success = supplier_service.delete_supplier(supplier_id)
         if not success:
             raise HTTPException(status_code=404, detail="Supplier not found")
-        return {"message": "删除成功"}
+        return {"message": "鍒犻櫎鎴愬姛"}
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete supplier: {str(e)}")
 
 
 @router.post("/suppliers/recommend")
@@ -131,17 +133,24 @@ async def recommend_suppliers_endpoint(
 
         for idx, rec in enumerate(recommendations, start=1):
             star_rating = max(1, min(5, int(rec["recommendation_score"] * 5) + 1))
-            days_ago = (datetime.utcnow() - rec["last_quote_date"]).days
-            if days_ago == 0:
-                last_quote_text = "今天"
-            elif days_ago == 1:
-                last_quote_text = "1天前"
-            elif days_ago < 30:
-                last_quote_text = f"{days_ago}天前"
-            elif days_ago < 365:
-                last_quote_text = f"{days_ago // 30}个月前"
+            last_quote_date = ensure_utc(rec.get("last_quote_date"))
+            if last_quote_date is None:
+                days_ago = None
             else:
-                last_quote_text = f"{days_ago // 365}年前"
+                days_ago = (utc_now() - last_quote_date).days
+
+            if days_ago == 0:
+                last_quote_text = "today"
+            elif days_ago == 1:
+                last_quote_text = "1 day ago"
+            elif isinstance(days_ago, int) and days_ago < 30:
+                last_quote_text = f"{days_ago} days ago"
+            elif isinstance(days_ago, int) and days_ago < 365:
+                last_quote_text = f"{days_ago // 30} months ago"
+            elif isinstance(days_ago, int):
+                last_quote_text = f"{days_ago // 365} years ago"
+            else:
+                last_quote_text = "unknown"
 
             result.append(
                 {
@@ -184,7 +193,7 @@ async def recommend_suppliers_v2_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """基于向量检索的供应商推荐（V2）"""
+    """Recommend top suppliers using vector search (V2)."""
     try:
         supplier_service = SupplierService(db)
         recommendations = supplier_service.recommend_suppliers_v2(
@@ -197,6 +206,25 @@ async def recommend_suppliers_v2_endpoint(
         result = []
         for idx, rec in enumerate(recommendations, start=1):
             star_rating = max(1, min(5, int(rec["recommendation_score"] * 5) + 1))
+            last_quote_date = ensure_utc(rec.get("last_quote_date"))
+            if last_quote_date is None:
+                days_ago = None
+            else:
+                days_ago = (utc_now() - last_quote_date).days
+
+            if days_ago == 0:
+                last_quote_text = "today"
+            elif days_ago == 1:
+                last_quote_text = "1 day ago"
+            elif isinstance(days_ago, int) and days_ago < 30:
+                last_quote_text = f"{days_ago} days ago"
+            elif isinstance(days_ago, int) and days_ago < 365:
+                last_quote_text = f"{days_ago // 30} months ago"
+            elif isinstance(days_ago, int):
+                last_quote_text = f"{days_ago // 365} years ago"
+            else:
+                last_quote_text = "unknown"
+
             result.append(
                 {
                     "rank": idx,

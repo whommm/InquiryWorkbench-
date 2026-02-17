@@ -3,9 +3,9 @@
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from datetime import datetime
 
 from ..models.database import get_db, User
+from ..core.datetime_utils import utc_now
 from .schemas import UserRegister, UserLogin, UserResponse, TokenResponse
 from .utils import get_password_hash, verify_password, create_access_token, get_current_user
 
@@ -63,7 +63,7 @@ async def login(user_data: UserLogin, db: Session = Depends(get_db)):
         )
 
     # 更新最后登录时间
-    user.last_login_at = datetime.utcnow()
+    user.last_login_at = utc_now()
     db.commit()
 
     # 生成 token

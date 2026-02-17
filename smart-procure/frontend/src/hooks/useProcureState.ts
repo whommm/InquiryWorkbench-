@@ -9,6 +9,17 @@ export interface ChatMessage {
 }
 
 export type SheetData = unknown[][];
+const EMPTY_SHEET_DATA: SheetData = [];
+const EMPTY_CHAT_HISTORY: ChatMessage[] = [];
+
+interface UploadRecommendedSupplier {
+  company_name?: string;
+  contact_name?: string | null;
+  contact_phone?: string | null;
+  match_reason?: string;
+  quote_count?: number;
+  last_quote_date?: string | null;
+}
 
 // 默认工具配置
 const DEFAULT_TOOL_CONFIGS: ToolConfig[] = [
@@ -25,8 +36,8 @@ export const useProcureState = () => {
   const [toolConfigs, setToolConfigs] = useState<ToolConfig[]>(DEFAULT_TOOL_CONFIGS);
 
   const activeTab = getActiveTab();
-  const sheetData = activeTab?.sheetData || [];
-  const chatHistory = activeTab?.chatHistory || [];
+  const sheetData = activeTab?.sheetData ?? EMPTY_SHEET_DATA;
+  const chatHistory = activeTab?.chatHistory ?? EMPTY_CHAT_HISTORY;
 
   useEffect(() => {
     // Load initial data only if active tab is empty
@@ -54,7 +65,7 @@ export const useProcureState = () => {
       }
     };
     loadInit();
-  }, [activeTabId]);
+  }, [activeTab, activeTabId, chatHistory, updateTab]);
 
   const handleSendMessage = async (message: string) => {
     if (!activeTabId) return;
@@ -135,7 +146,8 @@ export const useProcureState = () => {
             if (res.recommended_suppliers && res.recommended_suppliers.length > 0) {
               successMessage += '\n\n📋 **根据文件内容，为您推荐以下供应商：**\n\n';
 
-              res.recommended_suppliers.forEach((supplier: any, index: number) => {
+              const suppliers = res.recommended_suppliers as UploadRecommendedSupplier[];
+              suppliers.forEach((supplier, index: number) => {
                 successMessage += `${index + 1}. **${supplier.company_name}**\n`;
                 successMessage += `   联系人：${supplier.contact_name || '未知'}\n`;
                 successMessage += `   电话：${supplier.contact_phone}\n`;

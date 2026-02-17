@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+﻿import { useEffect, useState } from 'react';
 import Layout from './components/Layout';
 import ChatPanel from './components/ChatPanel';
 import UniverSheet from './components/UniverSheet';
@@ -11,14 +11,26 @@ import { useProcureState } from './hooks/useProcureState';
 import { useTabsStore } from './stores/useTabsStore';
 import { useAuthStore } from './stores/useAuthStore';
 import { useAutoSave } from './hooks/useAutoSave';
-import { getNotifications, AUTH_EXPIRED_EVENT } from './utils/api';
+import { AUTH_EXPIRED_EVENT } from './utils/api';
 import AuthPage from './pages/AuthPage';
 
 import { Toaster } from 'sonner';
 
 function App() {
   const { initializeTabs, isLoading, activeTabId, clearTabs } = useTabsStore();
-  const { sheetData, chatHistory, isThinking, isDirty, toolConfigs, handleSendMessage, handleFileUpload, handleSheetDataChange, clearChatHistory, handleToolToggle, handleManualSave } = useProcureState();
+  const {
+    sheetData,
+    chatHistory,
+    isThinking,
+    isDirty,
+    toolConfigs,
+    handleSendMessage,
+    handleFileUpload,
+    handleSheetDataChange,
+    clearChatHistory,
+    handleToolToggle,
+    handleManualSave,
+  } = useProcureState();
   const { isAuthenticated, isLoading: authLoading, loadFromStorage, logout, user } = useAuthStore();
   const [showHistory, setShowHistory] = useState(false);
   const [showSuppliers, setShowSuppliers] = useState(false);
@@ -33,46 +45,17 @@ function App() {
     try {
       const result = await handleManualSave();
       if (!result.success) {
-        setToast({ message: '保存失败', type: 'error' });
+        setToast({ message: '淇濆瓨澶辫触', type: 'error' });
       }
-      // 保存成功不显示Toast，等后台任务完成后通过轮询显示
     } finally {
       setIsSaving(false);
     }
   };
 
-  // 使用 ref 存储认证状态，避免 useCallback 依赖变化
-  const isAuthenticatedRef = useRef(isAuthenticated);
-  useEffect(() => {
-    isAuthenticatedRef.current = isAuthenticated;
-  }, [isAuthenticated]);
-
-  // 轮询通知
-  const checkNotifications = useCallback(async () => {
-    if (!isAuthenticatedRef.current) return;
-    try {
-      const result = await getNotifications();
-      if (result.notifications && result.notifications.length > 0) {
-        const notification = result.notifications[0];
-        setToast({ message: notification.message, type: notification.type });
-      }
-    } catch (e) {
-      // 忽略错误
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    const interval = setInterval(checkNotifications, 3000);
-    return () => clearInterval(interval);
-  }, [isAuthenticated, checkNotifications]);
-
-  // Initialize tabs on mount
   useEffect(() => {
     loadFromStorage();
-  }, []);
+  }, [loadFromStorage]);
 
-  // 监听认证过期事件
   useEffect(() => {
     const handleAuthExpired = () => {
       setToast({ message: '登录已过期，请重新登录', type: 'error' });
@@ -85,19 +68,15 @@ function App() {
     return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
   }, [logout, clearTabs]);
 
-  // Initialize tabs after authentication
   useEffect(() => {
     if (isAuthenticated && user) {
-      initializeTabs(user.id);
+      void initializeTabs(user.id);
     }
-  }, [isAuthenticated, user]);
+  }, [isAuthenticated, user, initializeTabs]);
 
-  // Enable auto-save for active tab
   useAutoSave(activeTabId);
 
-  // Handle row click from UniverSheet
   const handleRowClick = (rowIndex: number) => {
-    console.log('[App] handleRowClick called with rowIndex:', rowIndex);
     setSelectedRow(rowIndex);
   };
 
@@ -165,6 +144,7 @@ function App() {
           onSendMessage={handleSendMessage}
           isThinking={isThinking}
           onFileUpload={handleFileUpload}
+          onClearHistory={clearChatHistory}
           toolConfigs={toolConfigs}
           onToolToggle={handleToolToggle}
         />
@@ -182,11 +162,6 @@ function App() {
       <HistoryPanel
         isOpen={showHistory}
         onClose={() => setShowHistory(false)}
-        onRestoreHistory={(history) => {
-          // TODO: implement history restore
-          console.log('Restore history:', history);
-          setShowHistory(false);
-        }}
         onClearHistory={clearChatHistory}
       />
       <SupplierPanel
@@ -199,3 +174,4 @@ function App() {
 }
 
 export default App;
+

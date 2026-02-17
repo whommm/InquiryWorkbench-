@@ -150,7 +150,7 @@ const UniverSheet: React.FC<UniverSheetProps> = ({
       }
 
       const range = ws.getRange(0, 0, rowCount, colCount);
-      await Promise.resolve(range.setValues(normalized as any));
+      await Promise.resolve(range.setValues(normalized as unknown as never));
       try {
         ws.refreshCanvas?.();
       } catch {
@@ -277,8 +277,12 @@ const UniverSheet: React.FC<UniverSheetProps> = ({
         univer.registerPlugin(UniverSheetsUIPlugin);
         univer.registerPlugin(UniverSheetsFormulaPlugin);
         univer.registerPlugin(UniverSheetsFormulaUIPlugin);
-        univer.registerPlugin(UniverSheetsFilterPlugin as any);
-        univer.registerPlugin(UniverSheetsFilterUIPlugin as any);
+        univer.registerPlugin(
+          UniverSheetsFilterPlugin as unknown as Parameters<typeof univer.registerPlugin>[0]
+        );
+        univer.registerPlugin(
+          UniverSheetsFilterUIPlugin as unknown as Parameters<typeof univer.registerPlugin>[0]
+        );
         univer.createUnit(UniverInstanceType.UNIVER_SHEET, {});
 
         const univerAPI = FUniver.newAPI(univer);
@@ -411,13 +415,13 @@ const UniverSheet: React.FC<UniverSheetProps> = ({
                   return;
                 }
 
-                // Access the internal _range object to get row number
-                const rangeData = (range as any)._range;
-                if (!rangeData) {
+                // `_range` is not part of the public type, so read it via reflection.
+                const rangeData = Reflect.get(range as unknown as object, '_range') as unknown;
+                if (!rangeData || typeof rangeData !== 'object') {
                   return;
                 }
 
-                const startRow = rangeData.startRow;
+                const startRow = Reflect.get(rangeData as object, 'startRow') as unknown;
 
                 if (typeof startRow === 'number' && startRow >= 0) {
                   onRowClickRef.current?.(startRow);
