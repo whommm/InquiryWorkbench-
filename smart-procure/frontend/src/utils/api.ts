@@ -173,9 +173,14 @@ export const getNotifications = async (
   return response.data;
 };
 
-export const getNotificationStreamUrl = (): string => {
-  const token = localStorage.getItem('token') || '';
-  return `/api/notifications/stream?token=${encodeURIComponent(token)}`;
+export const getStreamTicket = async (): Promise<string> => {
+  const response = await api.post('/notifications/stream-ticket');
+  return response.data.ticket;
+};
+
+export const getNotificationStreamUrl = async (): Promise<string> => {
+  const ticket = await getStreamTicket();
+  return `/api/notifications/stream?ticket=${encodeURIComponent(ticket)}`;
 };
 
 export const markNotificationRead = async (

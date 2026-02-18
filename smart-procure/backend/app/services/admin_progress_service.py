@@ -228,7 +228,7 @@ def get_overview_daily_progress(
         total_quoted_rows += summary["today_quoted_rows"]
         summaries.append({k: v for k, v in summary.items() if k != "sheets"})
 
-    summaries.sort(key=lambda x: (x["today_progress"], -(x["today_total_rows"])))
+    summaries.sort(key=lambda x: (-x["today_progress"], -(x["today_total_rows"])))
     overall_progress = round((total_quoted_rows / total_rows), 4) if total_rows else 0.0
     return {
         "date": window.date_label,

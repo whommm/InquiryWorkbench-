@@ -148,7 +148,7 @@ const HistoryPanel = ({ isOpen, onClose, onClearHistory }: HistoryPanelProps) =>
                 onClick={() => setClearConfirmOpen(true)}
                 className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 border border-red-200 rounded-lg transition-colors flex items-center gap-2"
               >
-                清空记录
+                清空对话
               </button>
             )}
           </div>
@@ -219,8 +219,8 @@ const HistoryPanel = ({ isOpen, onClose, onClearHistory }: HistoryPanelProps) =>
 
       <ConfirmDialog
         open={clearConfirmOpen}
-        title="确认清空历史记录?"
-        description="将清空当前会话历史，操作不可恢复。"
+        title="确认清空对话记录?"
+        description="将清空当前聊天对话，询价单不受影响。"
         confirmText="确认清空"
         cancelText="取消"
         danger

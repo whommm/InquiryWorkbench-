@@ -96,38 +96,45 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
     }
   }, []);
 
-  const connectNotificationStream = useCallback(() => {
+  const connectNotificationStream = useCallback(async () => {
     clearReconnectTimer();
     closeStream();
 
-    const url = getNotificationStreamUrl();
-    if (!url.includes('token=') || url.endsWith('token=')) {
-      return;
-    }
-
-    const stream = new EventSource(url);
-    streamRef.current = stream;
-
-    stream.addEventListener('notification', (event: MessageEvent<string>) => {
-      try {
-        const payload = JSON.parse(event.data) as NotificationDTO;
-        if (!payload || typeof payload.id !== 'number') return;
-        setNotifications((prev) => upsertNotification(prev, payload));
-        if (payload.status === 'unread') {
-          showIncomingNotificationToast(payload);
-        }
-      } catch (error) {
-        console.error('Failed to parse notification SSE payload:', error);
+    try {
+      const url = await getNotificationStreamUrl();
+      if (!url.includes('ticket=') || url.endsWith('ticket=')) {
+        return;
       }
-    });
 
-    stream.onerror = () => {
-      closeStream();
-      clearReconnectTimer();
+      const stream = new EventSource(url);
+      streamRef.current = stream;
+
+      stream.addEventListener('notification', (event: MessageEvent<string>) => {
+        try {
+          const payload = JSON.parse(event.data) as NotificationDTO;
+          if (!payload || typeof payload.id !== 'number') return;
+          setNotifications((prev) => upsertNotification(prev, payload));
+          if (payload.status === 'unread') {
+            showIncomingNotificationToast(payload);
+          }
+        } catch (error) {
+          console.error('Failed to parse notification SSE payload:', error);
+        }
+      });
+
+      stream.onerror = () => {
+        closeStream();
+        clearReconnectTimer();
+        reconnectTimerRef.current = window.setTimeout(() => {
+          void connectNotificationStream();
+        }, STREAM_RECONNECT_DELAY_MS);
+      };
+    } catch (error) {
+      console.error('Failed to connect notification stream:', error);
       reconnectTimerRef.current = window.setTimeout(() => {
-        connectNotificationStream();
+        void connectNotificationStream();
       }, STREAM_RECONNECT_DELAY_MS);
-    };
+    }
   }, [clearReconnectTimer, closeStream]);
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -245,7 +252,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
     };
 
     void fetchNotifications();
-    connectNotificationStream();
+    void connectNotificationStream();
 
     return () => {
       cancelled = true;

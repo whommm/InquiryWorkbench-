@@ -80,8 +80,13 @@ export async function getUserDetail(userId: string, date: string, tz: string): P
   return response.data;
 }
 
-export function getStreamUrl(date: string, tz: string): string {
-  const token = localStorage.getItem('admin_token') || '';
-  const query = new URLSearchParams({ token, date, tz }).toString();
+export async function getStreamTicket(): Promise<string> {
+  const response = await api.post('/admin/progress/stream-ticket');
+  return response.data.ticket;
+}
+
+export async function getStreamUrl(date: string, tz: string): Promise<string> {
+  const ticket = await getStreamTicket();
+  const query = new URLSearchParams({ ticket, date, tz }).toString();
   return `/api/admin/progress/stream?${query}`;
 }

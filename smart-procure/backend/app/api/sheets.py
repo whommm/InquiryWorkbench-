@@ -1,3 +1,4 @@
+import logging
 import re
 import uuid
 from datetime import datetime
@@ -10,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..auth.utils import get_current_user
-from ..core.datetime_utils import ensure_utc
+from ..core.datetime_utils import ensure_utc, to_iso_string
 from ..models.columns import SLOT_FIELD_PRICE
 from ..models.database import User, get_db
 from ..services.db_service import DBService, SheetConflictError
@@ -18,6 +19,8 @@ from ..services.excel_export import export_sheet_to_excel
 from ..services.notification_service import add_notification
 from ..services.sheet_schema import build_sheet_schema
 from ..services.supplier_service import SupplierService
+
+logger = logging.getLogger(__name__)
 from ..services.admin_progress_service import publish_user_progress_update
 
 router = APIRouter()
@@ -116,7 +119,8 @@ async def save_sheet(
             },
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save sheet: {str(e)}")
+        logger.exception("Failed to save sheet")
+        raise HTTPException(status_code=500, detail="Failed to save sheet")
 
 
 @router.get("/sheets/list")
@@ -139,14 +143,15 @@ async def list_sheets(
                     "name": sheet.name,
                     "item_count": sheet.item_count,
                     "completion_rate": sheet.completion_rate,
-                    "created_at": sheet.created_at.isoformat() + "Z" if sheet.created_at else "",
-                    "updated_at": sheet.updated_at.isoformat() + "Z" if sheet.updated_at else "",
+                    "created_at": to_iso_string(sheet.created_at),
+                    "updated_at": to_iso_string(sheet.updated_at),
                 }
             )
 
         return {"sheets": result, "total": len(result)}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list sheets: {str(e)}")
+        logger.exception("Failed to list sheets")
+        raise HTTPException(status_code=500, detail="Failed to list sheets")
 
 
 @router.get("/sheets/{sheet_id}")
@@ -175,7 +180,8 @@ async def get_sheet(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get sheet: {str(e)}")
+        logger.exception("Failed to get sheet")
+        raise HTTPException(status_code=500, detail="Failed to get sheet")
 
 
 @router.delete("/sheets/{sheet_id}")
@@ -194,7 +200,8 @@ async def delete_sheet(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete sheet: {str(e)}")
+        logger.exception("Failed to delete sheet")
+        raise HTTPException(status_code=500, detail="Failed to delete sheet")
 
 
 @router.get("/sheets/{sheet_id}/export")
@@ -220,7 +227,8 @@ async def export_sheet(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to export sheet: {str(e)}")
+        logger.exception("Failed to export sheet")
+        raise HTTPException(status_code=500, detail="Failed to export sheet")
 
 
 def _extract_phones_from_text(text: str) -> list:

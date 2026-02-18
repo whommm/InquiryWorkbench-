@@ -1,5 +1,8 @@
 import asyncio
 import json
+import logging
+import secrets
+import time
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -18,6 +21,33 @@ from ..services.admin_progress_stream import (
 
 router = APIRouter()
 
+logger = logging.getLogger(__name__)
+
+# Admin SSE 票据存储
+_admin_stream_tickets: dict[str, tuple[str, float]] = {}
+_ADMIN_TICKET_TTL = 30
+
+
+def _create_admin_stream_ticket(user_id: str) -> str:
+    now = time.time()
+    expired = [k for k, v in _admin_stream_tickets.items() if v[1] < now]
+    for k in expired:
+        _admin_stream_tickets.pop(k, None)
+    ticket = secrets.token_urlsafe(24)
+    _admin_stream_tickets[ticket] = (user_id, now + _ADMIN_TICKET_TTL)
+    return ticket
+
+
+def _consume_admin_stream_ticket(ticket: str) -> str:
+    now = time.time()
+    expired = [k for k, v in _admin_stream_tickets.items() if v[1] < now]
+    for k in expired:
+        _admin_stream_tickets.pop(k, None)
+    entry = _admin_stream_tickets.pop(ticket, None)
+    if not entry:
+        raise HTTPException(status_code=401, detail="Invalid or expired ticket")
+    return entry[0]
+
 
 @router.post("/admin/embeddings/rebuild")
 async def rebuild_embeddings(
@@ -32,7 +62,8 @@ async def rebuild_embeddings(
         stats = service.rebuild_all_indexes()
         return {"status": "completed", "stats": stats}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to rebuild embeddings: {str(e)}")
+        logger.exception("Failed to rebuild embeddings")
+        raise HTTPException(status_code=500, detail="Failed to rebuild embeddings")
 
 
 @router.get("/admin/embeddings/stats")
@@ -48,7 +79,8 @@ async def get_embedding_stats(
         stats = service.get_index_stats()
         return {"status": "ok", "stats": stats}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get stats: {str(e)}")
+        logger.exception("Failed to get stats")
+        raise HTTPException(status_code=500, detail="Failed to get stats")
 
 
 @router.get("/admin/runtime/stats")
@@ -95,6 +127,13 @@ async def get_admin_progress_user_detail(
         raise HTTPException(status_code=500, detail=f"Failed to load user detail: {exc}")
 
 
+@router.post("/admin/progress/stream-ticket")
+async def create_admin_stream_ticket(current_user: User = Depends(require_admin_user)):
+    """生成 admin SSE 连接用的短时票据"""
+    ticket = _create_admin_stream_ticket(current_user.id)
+    return {"ticket": ticket}
+
+
 def _verify_admin_stream_token(db: Session, token: str) -> User:
     payload = decode_token(token)
     user_id = payload.get("sub") if isinstance(payload, dict) else None
@@ -114,12 +153,11 @@ def _verify_admin_stream_token(db: Session, token: str) -> User:
 
 @router.get("/admin/progress/stream")
 async def stream_admin_progress(
-    token: str = Query(..., min_length=10),
+    ticket: str = Query(..., min_length=10),
     date: Optional[str] = Query(default=None),
     tz: str = Query(default="Asia/Shanghai"),
-    db: Session = Depends(get_db),
 ):
-    _verify_admin_stream_token(db, token)
+    _consume_admin_stream_ticket(ticket)
 
     async def event_generator():
         queue = await subscribe_admin_progress_stream()

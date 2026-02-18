@@ -274,10 +274,6 @@ class SupplierService:
         logger.info("[推荐] 开始推荐供应商")
         logger.info(f"[推荐] 产品名称: {product_name}, 规格: {spec}, 品牌: {brand}")
 
-        # 获取所有供应商产品记录
-        all_products = self.db.query(SupplierProduct).all()
-        matched_products = []
-
         # 标准化输入
         norm_brand = self._normalize_brand(brand) if brand else ""
         norm_spec = self._normalize_model(spec) if spec else ""
@@ -289,6 +285,24 @@ class SupplierService:
             search_terms = [t.strip() for t in product_name.split() if t.strip()]
 
         logger.info(f"[推荐] 标准化后: norm_brand={norm_brand}, norm_spec={norm_spec}, search_terms={search_terms}")
+
+        # SQL 预过滤：构建 LIKE 条件减少加载量
+        query = self.db.query(SupplierProduct)
+        filters = []
+        if brand:
+            filters.append(SupplierProduct.brand.ilike(f"%{brand}%"))
+        if spec:
+            filters.append(SupplierProduct.product_model.ilike(f"%{spec}%"))
+        for term in search_terms[:3]:  # 限制搜索词数量
+            if len(term) >= 2:
+                filters.append(SupplierProduct.product_name.ilike(f"%{term}%"))
+                filters.append(SupplierProduct.product_model.ilike(f"%{term}%"))
+
+        if filters:
+            query = query.filter(or_(*filters))
+
+        all_products = query.limit(1000).all()  # 限制最大返回量
+        matched_products = []
 
         for p in all_products:
             score = 0.0

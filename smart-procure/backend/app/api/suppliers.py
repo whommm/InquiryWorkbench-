@@ -1,13 +1,16 @@
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from ..auth.utils import get_current_user
+from ..auth.utils import get_current_user, require_admin_user
 from ..core.datetime_utils import ensure_utc, utc_now
 from ..models.database import User, get_db
 from ..services.supplier_service import SupplierService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -46,7 +49,8 @@ async def search_suppliers(
             )
         return {"suppliers": result}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to search suppliers: {str(e)}")
+        logger.exception("Failed to search suppliers")
+        raise HTTPException(status_code=500, detail="Failed to search suppliers")
 
 
 @router.get("/suppliers/list")
@@ -86,14 +90,15 @@ async def list_suppliers_endpoint(
 
         return {"suppliers": result, "total": len(result)}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list suppliers: {str(e)}")
+        logger.exception("Failed to list suppliers")
+        raise HTTPException(status_code=500, detail="Failed to list suppliers")
 
 
 @router.delete("/suppliers/{supplier_id}")
 async def delete_supplier_endpoint(
     supplier_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_user),
 ):
     """Delete a supplier."""
     try:
@@ -105,7 +110,8 @@ async def delete_supplier_endpoint(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete supplier: {str(e)}")
+        logger.exception("Failed to delete supplier")
+        raise HTTPException(status_code=500, detail="Failed to delete supplier")
 
 
 @router.post("/suppliers/recommend")
@@ -184,7 +190,8 @@ async def recommend_suppliers_endpoint(
             },
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to recommend suppliers: {str(e)}")
+        logger.exception("Failed to recommend suppliers")
+        raise HTTPException(status_code=500, detail="Failed to recommend suppliers")
 
 
 @router.post("/suppliers/recommend/v2")
@@ -253,5 +260,6 @@ async def recommend_suppliers_v2_endpoint(
             },
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to recommend suppliers: {str(e)}")
+        logger.exception("Failed to recommend suppliers")
+        raise HTTPException(status_code=500, detail="Failed to recommend suppliers")
 

@@ -128,51 +128,65 @@ function App() {
 
   useEffect(() => {
     if (!token) return;
-    setStreamStatus('connecting');
-    const source = new EventSource(getStreamUrl(date, tz));
+    let source: EventSource | null = null;
+    let cancelled = false;
 
-    source.addEventListener('ready', () => {
-      setStreamStatus('online');
-    });
-
-    source.addEventListener('progress_update', (event) => {
+    const connect = async () => {
+      setStreamStatus('connecting');
       try {
-        const payload = JSON.parse((event as MessageEvent).data) as {
-          user?: AdminUserSummary | null;
-        };
-        const changedUser = payload.user;
-        if (!changedUser) return;
+        const url = await getStreamUrl(date, tz);
+        if (cancelled) return;
+        source = new EventSource(url);
 
-        setOverview((prev) => {
-          const exists = prev.users.some((item) => item.user_id === changedUser.user_id);
-          const nextUsers = exists
-            ? prev.users.map((item) => (item.user_id === changedUser.user_id ? changedUser : item))
-            : [changedUser, ...prev.users];
-          const sortedUsers = [...nextUsers].sort(
-            (a, b) =>
-              a.today_progress - b.today_progress || b.today_total_rows - a.today_total_rows,
-          );
-          return {
-            ...prev,
-            users: sortedUsers,
-            kpis: deriveKpis(sortedUsers),
-          };
+        source.addEventListener('ready', () => {
+          setStreamStatus('online');
         });
 
-        if (selectedUserId === changedUser.user_id) {
-          void loadUserDetail(changedUser.user_id);
-        }
-      } catch {
-        // Ignore malformed SSE payloads.
-      }
-    });
+        source.addEventListener('progress_update', (event) => {
+          try {
+            const payload = JSON.parse((event as MessageEvent).data) as {
+              user?: AdminUserSummary | null;
+            };
+            const changedUser = payload.user;
+            if (!changedUser) return;
 
-    source.onerror = () => {
-      setStreamStatus('offline');
+            setOverview((prev) => {
+              const exists = prev.users.some((item) => item.user_id === changedUser.user_id);
+              const nextUsers = exists
+                ? prev.users.map((item) => (item.user_id === changedUser.user_id ? changedUser : item))
+                : [changedUser, ...prev.users];
+              const sortedUsers = [...nextUsers].sort(
+                (a, b) =>
+                  b.today_progress - a.today_progress || b.today_total_rows - a.today_total_rows,
+              );
+              return {
+                ...prev,
+                users: sortedUsers,
+                kpis: deriveKpis(sortedUsers),
+              };
+            });
+
+            if (selectedUserId === changedUser.user_id) {
+              void loadUserDetail(changedUser.user_id);
+            }
+          } catch {
+            // Ignore malformed SSE payloads.
+          }
+        });
+
+        source.onerror = () => {
+          setStreamStatus('offline');
+        };
+      } catch {
+        setStreamStatus('offline');
+      }
     };
 
+    void connect();
+
     return () => {
-      source.close();
+      cancelled = true;
+      source?.close();
       setStreamStatus('offline');
     };
   }, [date, loadUserDetail, selectedUserId, token, tz]);

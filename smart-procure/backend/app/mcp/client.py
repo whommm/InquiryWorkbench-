@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import subprocess
+import threading
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
 
@@ -51,11 +52,19 @@ class MCPClient:
         self._request_id = 0
         self._tools: List[MCPTool] = []
         self._initialized = False
+        self._stderr_thread: Optional[threading.Thread] = None
 
     def _next_id(self) -> int:
         """生成下一个请求 ID"""
         self._request_id += 1
         return self._request_id
+
+    def _consume_stderr(self):
+        """消费 stderr 防止管道阻塞"""
+        while self.process and self.process.poll() is None:
+            line = self.process.stderr.readline()
+            if line:
+                logger.debug(f"MCP stderr: {line.strip()}")
 
     def _send_request(self, method: str, params: Optional[Dict] = None) -> Dict:
         """
@@ -123,6 +132,11 @@ class MCPClient:
             self.process.stdin.flush()
 
             self._initialized = True
+
+            # 启动 stderr 消费线程
+            self._stderr_thread = threading.Thread(target=self._consume_stderr, daemon=True)
+            self._stderr_thread.start()
+
             logger.info(f"MCP server started: {' '.join(self.server_command)}")
             return True
 
@@ -134,9 +148,15 @@ class MCPClient:
         """停止 MCP 服务器"""
         if self.process:
             self.process.terminate()
-            self.process.wait(timeout=5)
+            try:
+                self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                logger.warning("MCP server did not terminate, killing")
+                self.process.kill()
+                self.process.wait(timeout=2)
             self.process = None
             self._initialized = False
+            self._stderr_thread = None
             logger.info("MCP server stopped")
 
     def list_tools(self) -> List[MCPTool]:
