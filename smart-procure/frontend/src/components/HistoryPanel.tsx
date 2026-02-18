@@ -16,15 +16,13 @@ interface SheetListItem {
 interface HistoryPanelProps {
   isOpen: boolean;
   onClose: () => void;
-  onClearHistory?: () => Promise<void>;
 }
 
-const HistoryPanel = ({ isOpen, onClose, onClearHistory }: HistoryPanelProps) => {
+const HistoryPanel = ({ isOpen, onClose }: HistoryPanelProps) => {
   const [sheets, setSheets] = useState<SheetListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
-  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
 
   const { createTab } = useTabsStore();
 
@@ -143,14 +141,6 @@ const HistoryPanel = ({ isOpen, onClose, onClearHistory }: HistoryPanelProps) =>
                 className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-sm"
               />
             </div>
-            {onClearHistory && (
-              <button
-                onClick={() => setClearConfirmOpen(true)}
-                className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 border border-red-200 rounded-lg transition-colors flex items-center gap-2"
-              >
-                清空对话
-              </button>
-            )}
           </div>
 
           <div className="flex-1 overflow-y-auto px-6 py-4">
@@ -215,21 +205,6 @@ const HistoryPanel = ({ isOpen, onClose, onClearHistory }: HistoryPanelProps) =>
         danger
         onCancel={() => setDeleteTarget(null)}
         onConfirm={() => void confirmDeleteSheet()}
-      />
-
-      <ConfirmDialog
-        open={clearConfirmOpen}
-        title="确认清空对话记录?"
-        description="将清空当前聊天对话，询价单不受影响。"
-        confirmText="确认清空"
-        cancelText="取消"
-        danger
-        onCancel={() => setClearConfirmOpen(false)}
-        onConfirm={() => {
-          setClearConfirmOpen(false);
-          void onClearHistory?.();
-          void loadSheets();
-        }}
       />
     </>
   );

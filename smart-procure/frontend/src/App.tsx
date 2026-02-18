@@ -158,7 +158,6 @@ function App() {
       <HistoryPanel
         isOpen={showHistory}
         onClose={() => setShowHistory(false)}
-        onClearHistory={clearChatHistory}
       />
       <SupplierPanel
         isOpen={showSuppliers}
