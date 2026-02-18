@@ -62,6 +62,23 @@ services:
     depends_on:
       - backend
 
+  admin-frontend:
+    build:
+      context: ../
+      dockerfile: deploy/Dockerfile.admin-frontend
+    container_name: smart-procure-admin-frontend
+    ports:
+      - "7890:5174"
+    environment:
+      - VITE_PROXY_TARGET=http://backend:18000
+    volumes:
+      - ../admin-frontend:/app
+      - /app/node_modules
+    working_dir: /app
+    command: npm run dev -- --host
+    depends_on:
+      - backend
+
 volumes:
   postgres_data:
   qdrant_data:

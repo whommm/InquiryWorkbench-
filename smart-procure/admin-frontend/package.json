@@ -1,0 +1,26 @@
+{
+  "name": "admin-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node ./node_modules/vite/bin/vite.js --config vite.config.mjs --configLoader native",
+    "build": "tsc -b && node ./node_modules/vite/bin/vite.js build --config vite.config.mjs --configLoader native",
+    "preview": "node ./node_modules/vite/bin/vite.js preview --config vite.config.mjs --configLoader native"
+  },
+  "dependencies": {
+    "axios": "^1.13.2",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.5",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "typescript": "~5.9.3",
+    "vite": "npm:rolldown-vite@7.2.5"
+  },
+  "overrides": {
+    "vite": "npm:rolldown-vite@7.2.5"
+  }
+}

@@ -18,6 +18,7 @@ from ..services.excel_export import export_sheet_to_excel
 from ..services.notification_service import add_notification
 from ..services.sheet_schema import build_sheet_schema
 from ..services.supplier_service import SupplierService
+from ..services.admin_progress_service import publish_user_progress_update
 
 router = APIRouter()
 
@@ -93,6 +94,7 @@ async def save_sheet(
             expected_updated_at=expected_updated_at,
             force_overwrite=bool(request.force_overwrite),
         )
+        publish_user_progress_update(db, current_user.id, tz_name="Asia/Shanghai")
 
         return {
             "id": sheet.id,

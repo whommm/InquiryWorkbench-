@@ -26,6 +26,10 @@ smart-procure/frontend/node_modules/
 smart-procure/frontend/dist/
 smart-procure/frontend/.env
 smart-procure/frontend/.env.local
+smart-procure/admin-frontend/node_modules/
+smart-procure/admin-frontend/dist/
+smart-procure/admin-frontend/.env
+smart-procure/admin-frontend/.env.local
 
 # Binary files (optional - uncomment if you don't want to track)
 # *.doc

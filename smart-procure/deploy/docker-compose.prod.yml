@@ -62,6 +62,19 @@ services:
     networks:
       - app-network
 
+  admin-frontend:
+    build:
+      context: ../
+      dockerfile: deploy/Dockerfile.admin-frontend.prod
+    container_name: smart-procure-admin-frontend
+    restart: always
+    ports:
+      - "7890:80"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
   nginx:
     image: nginx:alpine
     container_name: smart-procure-nginx
