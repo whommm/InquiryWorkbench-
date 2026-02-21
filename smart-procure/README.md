@@ -11,6 +11,7 @@ SmartProcure 是一个基于 Web 的采购管理工具，主要功能包括：
 - **供应商管理**：自动沉淀供应商信息，支持来源追踪
 - **供应商推荐**：基于历史报价数据智能推荐供应商
 - **Excel 兼容**：支持导入/导出 Excel 文件
+- **管理员面板**：用户管理、进度监控、实时数据推送
 
 ## 技术栈
 
@@ -55,6 +56,10 @@ smart-procure/
 │   │   ├── stores/         # Zustand 状态
 │   │   └── utils/          # 工具函数
 │   └── package.json
+├── admin-frontend/         # 管理员面板
+│   └── src/
+│       ├── App.tsx         # 主应用组件
+│       └── api.ts          # API 客户端
 └── deploy/                 # 部署配置
     ├── docker-compose.yml          # 开发环境
     ├── docker-compose.prod.yml     # 生产环境
@@ -75,6 +80,7 @@ smart-procure/
 | username | VARCHAR(50) | 用户名，唯一 |
 | password_hash | VARCHAR(255) | 密码哈希 |
 | display_name | VARCHAR(100) | 显示名称 |
+| role | VARCHAR(20) | 角色 (user/admin) |
 | created_at | DATETIME | 创建时间 |
 | last_login_at | DATETIME | 最后登录时间 |
 
