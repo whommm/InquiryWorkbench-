@@ -3,10 +3,15 @@ import {
   type AdminUserSummary,
   type OverviewResponse,
   type SheetDetail,
+  type AdminUser,
   getOverview,
   getStreamUrl,
   getUserDetail,
   login,
+  listUsers,
+  createUser,
+  deleteUser,
+  resetPassword,
 } from './api';
 
 type AdminIdentity = {
@@ -17,6 +22,7 @@ type AdminIdentity = {
 };
 
 type StreamStatus = 'connecting' | 'online' | 'offline';
+type TabType = 'progress' | 'users';
 
 function todayISODate(): string {
   const now = new Date();
@@ -84,6 +90,11 @@ function App() {
   const [selectedUser, setSelectedUser] = useState<AdminUserSummary | null>(null);
   const [sheetDetails, setSheetDetails] = useState<SheetDetail[]>([]);
 
+  // Tab 和用户管理状态
+  const [activeTab, setActiveTab] = useState<TabType>('progress');
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+
   const loadOverview = useCallback(async () => {
     if (!token) return;
     setLoading(true);
@@ -116,10 +127,29 @@ function App() {
     [date, token, tz],
   );
 
+  const loadUsers = useCallback(async () => {
+    if (!token) return;
+    setUsersLoading(true);
+    try {
+      const data = await listUsers();
+      setUsers(data);
+    } catch {
+      setError('加载用户列表失败');
+    } finally {
+      setUsersLoading(false);
+    }
+  }, [token]);
+
   useEffect(() => {
     if (!token) return;
     void loadOverview();
   }, [loadOverview, token]);
+
+  useEffect(() => {
+    if (activeTab === 'users') {
+      void loadUsers();
+    }
+  }, [activeTab, loadUsers]);
 
   useEffect(() => {
     if (!selectedUserId) return;
@@ -239,9 +269,13 @@ function App() {
       <header className="topbar">
         <div>
           <p className="eyebrow">SmartProcure Admin</p>
-          <h1>实时进度监控面板</h1>
+          <h1>管理控制台</h1>
         </div>
         <div className="topbar-actions">
+          <div className="tab-switch">
+            <button className={activeTab === 'progress' ? 'active' : ''} onClick={() => setActiveTab('progress')}>进度监控</button>
+            <button className={activeTab === 'users' ? 'active' : ''} onClick={() => setActiveTab('users')}>用户管理</button>
+          </div>
           <label className="date-picker">
             <span>统计日期</span>
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
@@ -257,7 +291,9 @@ function App() {
 
       {error ? <div className="error-banner">{error}</div> : null}
 
-      <section className="kpi-grid">
+      {activeTab === 'progress' && (
+        <>
+          <section className="kpi-grid">
         <KpiCard label="今日活跃账号" value={overview.kpis.active_user_count.toString()} />
         <KpiCard label="今日更新表格" value={overview.kpis.updated_sheet_count.toString()} />
         <KpiCard label="询价产品总行数" value={overview.kpis.total_rows.toString()} mono />
@@ -364,6 +400,12 @@ function App() {
           </div>
         </div>
       </section>
+        </>
+      )}
+
+      {activeTab === 'users' && (
+        <UserManagement users={users} loading={usersLoading} onRefresh={loadUsers} />
+      )}
     </div>
   );
 }
@@ -417,6 +459,117 @@ function KpiCard(props: { label: string; value: string; mono?: boolean }) {
       <span>{props.label}</span>
       <strong className={props.mono ? 'mono' : ''}>{props.value}</strong>
     </article>
+  );
+}
+
+function UserManagement(props: {
+  users: AdminUser[];
+  loading: boolean;
+  onRefresh: () => void;
+}) {
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState({ username: '', password: '', display_name: '', role: 'user' });
+  const [resetUserId, setResetUserId] = useState<string | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+
+  const handleCreate = async () => {
+    if (!form.username || !form.password) return;
+    try {
+      await createUser(form);
+      setShowCreate(false);
+      setForm({ username: '', password: '', display_name: '', role: 'user' });
+      props.onRefresh();
+    } catch (e: unknown) {
+      alert((e as Error).message || '创建失败');
+    }
+  };
+
+  const handleDelete = async (userId: string, username: string) => {
+    if (!confirm(`确定删除用户 ${username}？`)) return;
+    try {
+      await deleteUser(userId);
+      props.onRefresh();
+    } catch (e: unknown) {
+      alert((e as Error).message || '删除失败');
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!resetUserId || !newPassword) return;
+    try {
+      await resetPassword(resetUserId, newPassword);
+      setResetUserId(null);
+      setNewPassword('');
+      alert('密码已重置');
+    } catch (e: unknown) {
+      alert((e as Error).message || '重置失败');
+    }
+  };
+
+  return (
+    <section className="panel" style={{ marginTop: 18 }}>
+      <div className="panel-header">
+        <h2>用户管理</h2>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn-secondary" onClick={props.onRefresh}>刷新</button>
+          <button className="btn-secondary" onClick={() => setShowCreate(true)}>新建用户</button>
+        </div>
+      </div>
+
+      {showCreate && (
+        <div className="create-form">
+          <input placeholder="用户名" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} />
+          <input placeholder="密码" type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />
+          <input placeholder="显示名称" value={form.display_name} onChange={e => setForm({ ...form, display_name: e.target.value })} />
+          <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}>
+            <option value="user">普通用户</option>
+            <option value="admin">管理员</option>
+          </select>
+          <button onClick={handleCreate}>创建</button>
+          <button onClick={() => setShowCreate(false)}>取消</button>
+        </div>
+      )}
+
+      {resetUserId && (
+        <div className="create-form">
+          <input placeholder="新密码" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
+          <button onClick={handleResetPassword}>确认重置</button>
+          <button onClick={() => setResetUserId(null)}>取消</button>
+        </div>
+      )}
+
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>用户名</th>
+              <th>显示名称</th>
+              <th>角色</th>
+              <th>创建时间</th>
+              <th>最后登录</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {props.users.map(u => (
+              <tr key={u.id}>
+                <td>{u.username}</td>
+                <td>{u.display_name || '-'}</td>
+                <td>{u.role === 'admin' ? '管理员' : '普通用户'}</td>
+                <td>{formatTime(u.created_at)}</td>
+                <td>{formatTime(u.last_login_at)}</td>
+                <td>
+                  <button className="btn-small" onClick={() => setResetUserId(u.id)}>重置密码</button>
+                  <button className="btn-small btn-danger" onClick={() => handleDelete(u.id, u.username)}>删除</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {props.loading && <p className="empty-tip">加载中...</p>}
+        {!props.loading && props.users.length === 0 && <p className="empty-tip">暂无用户</p>}
+      </div>
+    </section>
   );
 }
 

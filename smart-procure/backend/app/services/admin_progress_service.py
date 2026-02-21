@@ -9,9 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..core.datetime_utils import ensure_utc
 from ..models.database import InquirySheet, User
-from ..models.columns import SLOT_FIELD_PRICE
 from .admin_progress_stream import publish_admin_progress_sync
-from .sheet_schema import build_sheet_schema
 
 
 DEFAULT_TZ = "Asia/Shanghai"
@@ -56,58 +54,6 @@ def build_time_window(date_str: Optional[str], tz_name: Optional[str]) -> TimeWi
     )
 
 
-def _is_non_empty(value: Any) -> bool:
-    if value is None:
-        return False
-    text = str(value).strip()
-    return text != "" and text.lower() != "none"
-
-
-def _sheet_rows_progress(sheet_data: Any) -> Dict[str, Any]:
-    if not isinstance(sheet_data, list) or len(sheet_data) < 2:
-        return {"total_rows": 0, "quoted_rows": 0, "progress": 0.0}
-
-    schema = build_sheet_schema(sheet_data)
-    item_cols = schema.get("item_columns") or {}
-    slots = schema.get("slots") or {}
-    name_col = item_cols.get("name")
-    model_col = item_cols.get("model")
-    spec_col = item_cols.get("spec")
-
-    candidate_cols = [idx for idx in (name_col, model_col, spec_col) if isinstance(idx, int)]
-
-    def _is_product_row(row: List[Any]) -> bool:
-        if candidate_cols:
-            return any(idx < len(row) and _is_non_empty(row[idx]) for idx in candidate_cols)
-        return any(idx < len(row) and _is_non_empty(row[idx]) for idx in range(min(5, len(row))))
-
-    def _has_price(row: List[Any]) -> bool:
-        for slot_num in sorted(slots.keys()):
-            slot_map = slots.get(slot_num) or {}
-            price_idx = slot_map.get(SLOT_FIELD_PRICE)
-            if isinstance(price_idx, int) and price_idx < len(row) and _is_non_empty(row[price_idx]):
-                return True
-        return False
-
-    total_rows = 0
-    quoted_rows = 0
-    for row in sheet_data[1:]:
-        if not isinstance(row, list):
-            continue
-        if not _is_product_row(row):
-            continue
-        total_rows += 1
-        if _has_price(row):
-            quoted_rows += 1
-
-    progress = (quoted_rows / total_rows) if total_rows else 0.0
-    return {
-        "total_rows": total_rows,
-        "quoted_rows": quoted_rows,
-        "progress": round(progress, 4),
-    }
-
-
 def _serialize_time(value: Optional[datetime]) -> Optional[str]:
     normalized = ensure_utc(value)
     return normalized.isoformat() if normalized else None
@@ -136,9 +82,12 @@ def _build_user_summary(user: User, sheets: List[InquirySheet]) -> Dict[str, Any
     updated_sheet_names: List[str] = []
 
     for sheet in sheets:
-        metrics = _sheet_rows_progress(sheet.sheet_data)
-        total_rows += metrics["total_rows"]
-        quoted_rows += metrics["quoted_rows"]
+        # Use cached fields instead of recalculating from sheet_data
+        sheet_total = sheet.item_count or 0
+        sheet_progress = sheet.completion_rate or 0.0
+        sheet_quoted = int(sheet_total * sheet_progress)
+        total_rows += sheet_total
+        quoted_rows += sheet_quoted
         updated_at = ensure_utc(sheet.updated_at)
         if updated_at and (last_update_at is None or updated_at > last_update_at):
             last_update_at = updated_at
@@ -148,9 +97,9 @@ def _build_user_summary(user: User, sheets: List[InquirySheet]) -> Dict[str, Any
                 "sheet_id": sheet.id,
                 "sheet_name": sheet.name,
                 "updated_at": _serialize_time(updated_at),
-                "total_rows": metrics["total_rows"],
-                "quoted_rows": metrics["quoted_rows"],
-                "progress": metrics["progress"],
+                "total_rows": sheet_total,
+                "quoted_rows": sheet_quoted,
+                "progress": round(sheet_progress, 4),
             }
         )
         if isinstance(sheet.name, str) and sheet.name.strip():

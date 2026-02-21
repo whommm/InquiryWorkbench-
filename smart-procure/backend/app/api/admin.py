@@ -4,13 +4,15 @@ import logging
 import secrets
 import time
 from typing import Optional
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..models.database import get_db, User
-from ..auth.utils import decode_token, is_admin_user, require_admin_user
+from ..auth.utils import decode_token, is_admin_user, require_admin_user, get_password_hash
 from ..core.llm import get_llm_gateway_stats
 from ..services.agent_runtime import get_tool_runtime_stats
 from ..services.admin_progress_service import get_overview_daily_progress, get_user_daily_progress
@@ -183,3 +185,97 @@ async def stream_admin_progress(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ========== 用户管理 API ==========
+
+class CreateUserRequest(BaseModel):
+    username: str = Field(..., min_length=2, max_length=50)
+    password: str = Field(..., min_length=6, max_length=100)
+    display_name: Optional[str] = Field(None, max_length=100)
+    role: str = Field("user", pattern="^(user|admin)$")
+
+
+class ResetPasswordRequest(BaseModel):
+    new_password: str = Field(..., min_length=6, max_length=100)
+
+
+@router.get("/admin/users")
+async def list_users(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+):
+    """获取所有用户列表"""
+    users = db.query(User).order_by(User.created_at.desc()).all()
+    return {
+        "users": [
+            {
+                "id": u.id,
+                "username": u.username,
+                "display_name": u.display_name,
+                "role": u.role or "user",
+                "created_at": u.created_at.isoformat() if u.created_at else None,
+                "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
+            }
+            for u in users
+        ]
+    }
+
+
+@router.post("/admin/users")
+async def create_user(
+    request: CreateUserRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+):
+    """创建新用户"""
+    existing = db.query(User).filter(User.username == request.username).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="用户名已存在")
+
+    new_user = User(
+        id=str(uuid.uuid4()),
+        username=request.username,
+        password_hash=get_password_hash(request.password),
+        display_name=request.display_name or request.username,
+        role=request.role,
+    )
+    db.add(new_user)
+    db.commit()
+    return {"message": "用户创建成功", "user_id": new_user.id}
+
+
+@router.delete("/admin/users/{user_id}")
+async def delete_user(
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+):
+    """删除用户"""
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="不能删除自己")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    db.delete(user)
+    db.commit()
+    return {"message": "用户已删除"}
+
+
+@router.post("/admin/users/{user_id}/reset-password")
+async def reset_user_password(
+    user_id: str,
+    request: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+):
+    """重置用户密码"""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    user.password_hash = get_password_hash(request.new_password)
+    db.commit()
+    return {"message": "密码已重置"}

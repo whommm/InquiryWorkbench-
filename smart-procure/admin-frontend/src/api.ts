@@ -90,3 +90,36 @@ export async function getStreamUrl(date: string, tz: string): Promise<string> {
   const query = new URLSearchParams({ ticket, date, tz }).toString();
   return `/api/admin/progress/stream?${query}`;
 }
+
+// ========== 用户管理 API ==========
+
+export type AdminUser = {
+  id: string;
+  username: string;
+  display_name?: string | null;
+  role: string;
+  created_at?: string | null;
+  last_login_at?: string | null;
+};
+
+export async function listUsers(): Promise<AdminUser[]> {
+  const response = await api.get('/admin/users');
+  return response.data.users;
+}
+
+export async function createUser(data: {
+  username: string;
+  password: string;
+  display_name?: string;
+  role: string;
+}): Promise<void> {
+  await api.post('/admin/users', data);
+}
+
+export async function deleteUser(userId: string): Promise<void> {
+  await api.delete(`/admin/users/${userId}`);
+}
+
+export async function resetPassword(userId: string, newPassword: string): Promise<void> {
+  await api.post(`/admin/users/${userId}/reset-password`, { new_password: newPassword });
+}

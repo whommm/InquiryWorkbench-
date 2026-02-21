@@ -455,3 +455,72 @@ tbody tr.active {
     grid-template-columns: 1fr;
   }
 }
+
+/* Tab 切换 */
+.tab-switch {
+  display: flex;
+  gap: 4px;
+  background: #e5ece9;
+  border-radius: 10px;
+  padding: 4px;
+}
+
+.tab-switch button {
+  border: none;
+  background: transparent;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.tab-switch button.active {
+  background: #fff;
+  color: #0f766e;
+}
+
+/* 创建表单 */
+.create-form {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  background: #f4f8f6;
+  border-bottom: 1px solid #e5ece9;
+  flex-wrap: wrap;
+}
+
+.create-form input, .create-form select {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.create-form button {
+  border: none;
+  background: #0f766e;
+  color: #fff;
+  border-radius: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.create-form button:last-child {
+  background: #6b7280;
+}
+
+/* 小按钮 */
+.btn-small {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  margin-right: 4px;
+}
+
+.btn-small.btn-danger {
+  border-color: #fecaca;
+  color: #dc2626;
+}
