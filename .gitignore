@@ -34,3 +34,11 @@ smart-procure/admin-frontend/.env.local
 # Binary files (optional - uncomment if you don't want to track)
 # *.doc
 # *.docx
+
+# Database files
+*.db
+smart-procure/backend/data/*.db
+
+# Development docs
+Automation_Implementation_Plan.md
+PROJECT_AUDIT_REPORT_*.md
