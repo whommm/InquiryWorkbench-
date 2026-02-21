@@ -202,11 +202,14 @@ class ResetPasswordRequest(BaseModel):
 
 @router.get("/admin/users")
 async def list_users(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin_user),
 ):
-    """获取所有用户列表"""
-    users = db.query(User).order_by(User.created_at.desc()).all()
+    """获取所有用户列表（分页）"""
+    total = db.query(User).count()
+    users = db.query(User).order_by(User.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
     return {
         "users": [
             {
@@ -218,7 +221,10 @@ async def list_users(
                 "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
             }
             for u in users
-        ]
+        ],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
     }
 
 
@@ -242,6 +248,7 @@ async def create_user(
     )
     db.add(new_user)
     db.commit()
+    logger.info(f"[AUDIT] User created: {new_user.username} (id={new_user.id}) by admin {current_user.username}")
     return {"message": "用户创建成功", "user_id": new_user.id}
 
 
@@ -264,8 +271,10 @@ async def delete_user(
     if sheet_count > 0:
         raise HTTPException(status_code=400, detail=f"该用户有 {sheet_count} 个表格，无法删除")
 
+    username = user.username
     db.delete(user)
     db.commit()
+    logger.info(f"[AUDIT] User deleted: {username} (id={user_id}) by admin {current_user.username}")
     return {"message": "用户已删除"}
 
 
@@ -283,4 +292,5 @@ async def reset_user_password(
 
     user.password_hash = get_password_hash(request.new_password)
     db.commit()
+    logger.info(f"[AUDIT] Password reset for user: {user.username} (id={user_id}) by admin {current_user.username}")
     return {"message": "密码已重置"}

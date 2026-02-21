@@ -65,6 +65,18 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('admin_token');
+      localStorage.removeItem('admin_user');
+      window.location.reload();
+    }
+    return Promise.reject(error);
+  }
+);
+
 export async function login(username: string, password: string): Promise<LoginResponse> {
   const response = await api.post('/auth/login', { username, password });
   return response.data;
@@ -102,9 +114,16 @@ export type AdminUser = {
   last_login_at?: string | null;
 };
 
-export async function listUsers(): Promise<AdminUser[]> {
-  const response = await api.get('/admin/users');
-  return response.data.users;
+export type ListUsersResponse = {
+  users: AdminUser[];
+  total: number;
+  page: number;
+  page_size: number;
+};
+
+export async function listUsers(page = 1, pageSize = 20): Promise<ListUsersResponse> {
+  const response = await api.get('/admin/users', { params: { page, page_size: pageSize } });
+  return response.data;
 }
 
 export async function createUser(data: {

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type AdminUserSummary,
   type OverviewResponse,
   type SheetDetail,
   type AdminUser,
+  type ListUsersResponse,
   getOverview,
   getStreamUrl,
   getUserDetail,
@@ -94,6 +95,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<TabType>('progress');
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
+  const [usersPagination, setUsersPagination] = useState({ total: 0, page: 1, pageSize: 20 });
 
   const loadOverview = useCallback(async () => {
     if (!token) return;
@@ -102,15 +104,13 @@ function App() {
     try {
       const data = await getOverview(date, tz);
       setOverview(data);
-      if (!selectedUserId && data.users.length > 0) {
-        setSelectedUserId(data.users[0].user_id);
-      }
+      setSelectedUserId((prev) => (!prev && data.users.length > 0 ? data.users[0].user_id : prev));
     } catch (err) {
       setError((err as Error).message || '加载总览失败');
     } finally {
       setLoading(false);
     }
-  }, [date, selectedUserId, token, tz]);
+  }, [date, token, tz]);
 
   const loadUserDetail = useCallback(
     async (userId: string) => {
@@ -127,18 +127,19 @@ function App() {
     [date, token, tz],
   );
 
-  const loadUsers = useCallback(async () => {
+  const loadUsers = useCallback(async (page = 1) => {
     if (!token) return;
     setUsersLoading(true);
     try {
-      const data = await listUsers();
-      setUsers(data);
+      const data = await listUsers(page, usersPagination.pageSize);
+      setUsers(data.users);
+      setUsersPagination({ total: data.total, page: data.page, pageSize: data.page_size });
     } catch {
       setError('加载用户列表失败');
     } finally {
       setUsersLoading(false);
     }
-  }, [token]);
+  }, [token, usersPagination.pageSize]);
 
   useEffect(() => {
     if (!token) return;
@@ -156,10 +157,17 @@ function App() {
     void loadUserDetail(selectedUserId);
   }, [loadUserDetail, selectedUserId]);
 
+  const selectedUserIdRef = useRef(selectedUserId);
+  useEffect(() => {
+    selectedUserIdRef.current = selectedUserId;
+  }, [selectedUserId]);
+
   useEffect(() => {
     if (!token) return;
     let source: EventSource | null = null;
     let cancelled = false;
+    let retryCount = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
     const connect = async () => {
       setStreamStatus('connecting');
@@ -170,6 +178,7 @@ function App() {
 
         source.addEventListener('ready', () => {
           setStreamStatus('online');
+          retryCount = 0;
         });
 
         source.addEventListener('progress_update', (event) => {
@@ -196,7 +205,7 @@ function App() {
               };
             });
 
-            if (selectedUserId === changedUser.user_id) {
+            if (selectedUserIdRef.current === changedUser.user_id) {
               void loadUserDetail(changedUser.user_id);
             }
           } catch {
@@ -206,9 +215,20 @@ function App() {
 
         source.onerror = () => {
           setStreamStatus('offline');
+          source?.close();
+          if (!cancelled && retryCount < 5) {
+            const delay = Math.min(1000 * 2 ** retryCount, 30000);
+            retryCount++;
+            retryTimer = setTimeout(() => void connect(), delay);
+          }
         };
       } catch {
         setStreamStatus('offline');
+        if (!cancelled && retryCount < 5) {
+          const delay = Math.min(1000 * 2 ** retryCount, 30000);
+          retryCount++;
+          retryTimer = setTimeout(() => void connect(), delay);
+        }
       }
     };
 
@@ -216,10 +236,11 @@ function App() {
 
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
       source?.close();
       setStreamStatus('offline');
     };
-  }, [date, loadUserDetail, selectedUserId, token, tz]);
+  }, [date, loadUserDetail, token, tz]);
 
   const displayUsers = useMemo(() => overview.users, [overview.users]);
 
@@ -404,7 +425,7 @@ function App() {
       )}
 
       {activeTab === 'users' && (
-        <UserManagement users={users} loading={usersLoading} onRefresh={loadUsers} />
+        <UserManagement users={users} loading={usersLoading} pagination={usersPagination} onRefresh={loadUsers} />
       )}
     </div>
   );
@@ -465,7 +486,8 @@ function KpiCard(props: { label: string; value: string; mono?: boolean }) {
 function UserManagement(props: {
   users: AdminUser[];
   loading: boolean;
-  onRefresh: () => void;
+  pagination: { total: number; page: number; pageSize: number };
+  onRefresh: (page?: number) => void;
 }) {
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ username: '', password: '', display_name: '', role: 'user' });
@@ -574,6 +596,13 @@ function UserManagement(props: {
         {props.loading && <p className="empty-tip">加载中...</p>}
         {!props.loading && props.users.length === 0 && <p className="empty-tip">暂无用户</p>}
       </div>
+      {props.pagination.total > props.pagination.pageSize && (
+        <div className="pagination">
+          <button disabled={props.pagination.page <= 1} onClick={() => props.onRefresh(props.pagination.page - 1)}>上一页</button>
+          <span>{props.pagination.page} / {Math.ceil(props.pagination.total / props.pagination.pageSize)}</span>
+          <button disabled={props.pagination.page >= Math.ceil(props.pagination.total / props.pagination.pageSize)} onClick={() => props.onRefresh(props.pagination.page + 1)}>下一页</button>
+        </div>
+      )}
     </section>
   );
 }

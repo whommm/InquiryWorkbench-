@@ -106,10 +106,7 @@ def _build_user_summary(user: User, sheets: List[InquirySheet]) -> Dict[str, Any
             updated_sheet_names.append(sheet.name.strip())
 
     progress = round((quoted_rows / total_rows), 4) if total_rows else 0.0
-    unique_names: List[str] = []
-    for name in updated_sheet_names:
-        if name not in unique_names:
-            unique_names.append(name)
+    unique_names = list(dict.fromkeys(updated_sheet_names))
 
     return {
         "user_id": user.id,
