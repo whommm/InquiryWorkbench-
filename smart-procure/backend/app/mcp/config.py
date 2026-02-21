@@ -23,7 +23,7 @@ DEFAULT_MCP_SERVERS: Dict[str, MCPServerConfig] = {
     "playwright": MCPServerConfig(
         name="playwright",
         command=["npx", "@playwright/mcp@latest"],
-        env={"PLAYWRIGHT_HEADLESS": "true"},
+        env={"PLAYWRIGHT_HEADLESS": os.getenv("PLAYWRIGHT_HEADLESS", "true")},
         enabled=True,
     ),
 }

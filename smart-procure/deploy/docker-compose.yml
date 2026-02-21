@@ -38,6 +38,8 @@ services:
       - ../backend:/app
     env_file:
       - ../backend/.env
+    environment:
+      - PLAYWRIGHT_HEADLESS=true
     command: uvicorn app.main:app --host 0.0.0.0 --port 18000 --reload
     depends_on:
       postgres:

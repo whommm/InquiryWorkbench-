@@ -5,9 +5,26 @@ from typing import Dict, Any, List
 from playwright.sync_api import sync_playwright
 from concurrent.futures import ThreadPoolExecutor
 import functools
+import os
+import logging
 
 # 全局线程池，用于在异步环境中运行同步的 Playwright 代码
 _executor = ThreadPoolExecutor(max_workers=2)
+logger = logging.getLogger(__name__)
+
+
+def _requested_headless() -> bool:
+    value = str(os.getenv("PLAYWRIGHT_HEADLESS", "true")).strip().lower()
+    return value in ("1", "true", "yes", "on")
+
+
+def _is_headless() -> bool:
+    requested = _requested_headless()
+    # In Linux containers, headed mode needs an X server. Auto-fallback to avoid hard failure.
+    if not requested and os.name != "nt" and not os.getenv("DISPLAY"):
+        logger.warning("PLAYWRIGHT_HEADLESS=false but DISPLAY is missing; fallback to headless mode.")
+        return True
+    return requested
 
 
 class BrowserService:
@@ -41,7 +58,7 @@ class BrowserService:
         """
         try:
             with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
+                browser = p.chromium.launch(headless=_is_headless())
                 context = browser.new_context(
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
                 )
@@ -103,7 +120,7 @@ class BrowserService:
         """
         try:
             with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
+                browser = p.chromium.launch(headless=_is_headless())
                 context = browser.new_context(
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 )

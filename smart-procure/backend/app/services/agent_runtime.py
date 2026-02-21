@@ -71,6 +71,123 @@ def _tool_results_block(tool_results: List[Dict[str, Any]]) -> str:
     return json.dumps(tool_results, ensure_ascii=False)
 
 
+def _looks_like_clarification_prompt(content: Any) -> bool:
+    if not isinstance(content, str):
+        return True
+    text = content.strip()
+    if not text:
+        return True
+    lowered = text.lower()
+    hints = [
+        "请从搜索结果中选择",
+        "希望我深入搜索哪家",
+        "更具体的搜索要求",
+        "which one",
+        "choose one",
+        "more specific",
+    ]
+    return any(h in text or h in lowered for h in hints)
+
+
+def _is_noise_url(url: str) -> bool:
+    lowered = (url or "").strip().lower()
+    if not lowered:
+        return True
+    if lowered.startswith("javascript:"):
+        return True
+    if "baidu.com/link?" in lowered:
+        return True
+    if "/baidu.php?url=" in lowered:
+        return True
+    return False
+
+
+def _build_search_result_reply(tool_results: List[Dict[str, Any]], max_items: int = 5) -> Optional[str]:
+    # Prefer structured browser search results when available.
+    collected: List[Dict[str, str]] = []
+    latest_query = ""
+    for item in reversed(tool_results):
+        if not isinstance(item, dict) or not item.get("ok"):
+            continue
+        if item.get("tool") != "web_browse":
+            continue
+        result = item.get("result")
+        if not isinstance(result, dict):
+            continue
+        if not latest_query and isinstance(result.get("query"), str):
+            latest_query = result["query"].strip()
+        results = result.get("results")
+        if not isinstance(results, list):
+            continue
+        for row in results:
+            if not isinstance(row, dict):
+                continue
+            title = str(row.get("title") or "").strip()
+            url = str(row.get("url") or "").strip()
+            abstract = str(row.get("abstract") or "").strip()
+            if not title or _is_noise_url(url):
+                continue
+            collected.append({"title": title, "url": url, "abstract": abstract})
+            if len(collected) >= max_items:
+                break
+        if len(collected) >= max_items:
+            break
+
+    if collected:
+        head = "已为您完成深入搜索，当前可用结果如下："
+        if latest_query:
+            head = f"已为您完成深入搜索（关键词：{latest_query}），当前可用结果如下："
+        lines = [head, ""]
+        for idx, row in enumerate(collected, start=1):
+            lines.append(f"{idx}. [{row['title']}]({row['url']})")
+            lines.append(f"   链接：{row['url']}")
+            if row["abstract"]:
+                lines.append(f"   摘要：{row['abstract']}")
+            lines.append("")
+        lines.append("如果你要，我可以继续基于这几条逐个打开并提取：公司名称、是否授权、联系人、电话、地区。")
+        return "\n".join(lines).strip()
+
+    # Fallback to supplier search message text.
+    for item in reversed(tool_results):
+        if not isinstance(item, dict) or not item.get("ok"):
+            continue
+        if item.get("tool") != "web_search_supplier":
+            continue
+        result = item.get("result")
+        if isinstance(result, dict):
+            message = result.get("message")
+            if isinstance(message, str) and message.strip():
+                return message.strip()
+    return None
+
+
+def _should_normalize_search_ask(content: Any, tool_results: List[Dict[str, Any]]) -> bool:
+    if not isinstance(content, str):
+        return False
+    # Only normalize when we do have search results from tools.
+    has_search_result = any(
+        isinstance(item, dict)
+        and item.get("ok")
+        and item.get("tool") in ("web_browse", "web_search_supplier")
+        for item in tool_results
+    )
+    if not has_search_result:
+        return False
+
+    text = content.strip()
+    if not text:
+        return True
+    lowered = text.lower()
+    hints = [
+        "https://www.baidu.com/link?url=...",
+        "http://www.baidu.com/link?url=...",
+        "由于搜索结果较多",
+        "建议您：",
+        "无法一次性获取所有页面的详细内容",
+    ]
+    return any(h in text or h in lowered for h in hints)
+
+
 def build_planner_prompt(
     *,
     sheet_state_summary: str,
@@ -477,7 +594,12 @@ def run_two_stage_agent(
 
         action = planner_out.get("action")
         if action == "ASK":
-            return {"action": "ASK", "content": planner_out.get("content")}
+            ask_content = planner_out.get("content")
+            if _looks_like_clarification_prompt(ask_content):
+                fallback_reply = _build_search_result_reply(tool_results)
+                if fallback_reply:
+                    return {"action": "ASK", "content": fallback_reply}
+            return {"action": "ASK", "content": ask_content}
 
         if action == "CALL_TOOL":
             tool_name = planner_out.get("tool")
@@ -521,7 +643,12 @@ def run_two_stage_agent(
     writer_out = _safe_json_loads(writer_out_str) or {}
     w_action = writer_out.get("action")
     if w_action == "ASK":
-        return {"action": "ASK", "content": writer_out.get("content")}
+        ask_content = writer_out.get("content")
+        if _should_normalize_search_ask(ask_content, tool_results):
+            fallback_reply = _build_search_result_reply(tool_results)
+            if fallback_reply:
+                return {"action": "ASK", "content": fallback_reply}
+        return {"action": "ASK", "content": ask_content}
     if w_action == "WRITE":
         updates = writer_out.get("updates")
         if isinstance(updates, list):

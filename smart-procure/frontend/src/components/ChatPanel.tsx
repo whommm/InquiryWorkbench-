@@ -14,6 +14,78 @@ interface ChatPanelProps {
   onToolToggle: (toolId: string) => void;
 }
 
+const trailingPunctuation = /[),.;!?]+$/;
+
+const renderMessageWithLinks = (content: string) => {
+  const lines = content.split('\n');
+  const pattern = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s]+)/g;
+
+  return lines.map((line, lineIdx) => {
+    const parts: React.ReactNode[] = [];
+    let cursor = 0;
+    let match: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+
+    while ((match = pattern.exec(line)) !== null) {
+      const full = match[0];
+      const mdText = match[1];
+      const mdUrl = match[2];
+      const rawUrl = match[3];
+      const start = match.index;
+
+      if (start > cursor) {
+        parts.push(line.slice(cursor, start));
+      }
+
+      if (mdText && mdUrl) {
+        parts.push(
+          <a
+            key={`md-${lineIdx}-${start}`}
+            href={mdUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-emerald-700 underline break-all"
+          >
+            {mdText}
+          </a>
+        );
+      } else if (rawUrl) {
+        const cleanUrl = rawUrl.replace(trailingPunctuation, '');
+        const suffix = rawUrl.slice(cleanUrl.length);
+        parts.push(
+          <a
+            key={`url-${lineIdx}-${start}`}
+            href={cleanUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-emerald-700 underline break-all"
+          >
+            {cleanUrl}
+          </a>
+        );
+        if (suffix) {
+          parts.push(suffix);
+        }
+      } else {
+        parts.push(full);
+      }
+
+      cursor = start + full.length;
+    }
+
+    if (cursor < line.length) {
+      parts.push(line.slice(cursor));
+    }
+
+    return (
+      <React.Fragment key={`line-${lineIdx}`}>
+        {parts}
+        {lineIdx < lines.length - 1 ? <br /> : null}
+      </React.Fragment>
+    );
+  });
+};
+
 const ChatPanel: React.FC<ChatPanelProps> = ({
   messages,
   onSendMessage,
@@ -132,7 +204,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                 msg.role === 'user' ? 'bg-emerald-600 text-white rounded-br-none' : 'bg-gray-100 text-gray-800 rounded-bl-none'
               }`}
             >
-              <div className="whitespace-pre-wrap leading-relaxed">{msg.content}</div>
+              <div className="whitespace-pre-wrap leading-relaxed">
+                {msg.role === 'assistant' ? renderMessageWithLinks(msg.content) : msg.content}
+              </div>
             </div>
             <span className="text-xs text-gray-400 mt-1.5 ml-1">{msg.role === 'assistant' ? 'AI 助手' : '我'}</span>
           </div>
@@ -218,4 +292,3 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 };
 
 export default ChatPanel;
-

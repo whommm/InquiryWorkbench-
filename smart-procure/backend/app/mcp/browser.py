@@ -20,6 +20,15 @@ logger = logging.getLogger(__name__)
 _executor = ThreadPoolExecutor(max_workers=2)
 
 
+def _resolve_playwright_headless() -> str:
+    value = str(os.getenv("PLAYWRIGHT_HEADLESS", "true")).strip().lower()
+    requested = value in ("1", "true", "yes", "on")
+    if not requested and os.name != "nt" and not os.getenv("DISPLAY"):
+        logger.warning("PLAYWRIGHT_HEADLESS=false but DISPLAY is missing; fallback to headless mode for MCP browser.")
+        return "true"
+    return "true" if requested else "false"
+
+
 @dataclass
 class BrowserSession:
     """浏览器会话，保持状态用于迭代操作"""
@@ -86,7 +95,7 @@ class BrowserMCPManager:
             session_id = self._generate_session_id()
             client = MCPClient(
                 server_command=["npx", "@playwright/mcp@latest"],
-                env={**os.environ, "PLAYWRIGHT_HEADLESS": "true"}
+                env={**os.environ, "PLAYWRIGHT_HEADLESS": _resolve_playwright_headless()}
             )
 
             if not client.start():

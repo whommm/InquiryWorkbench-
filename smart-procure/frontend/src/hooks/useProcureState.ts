@@ -54,7 +54,7 @@ export const useProcureState = () => {
         console.error('Failed to load init data', e);
         await updateTab(activeTabId, {
           chatHistory: [
-            ...chatHistory,
+            ...(activeTab.chatHistory || []),
             { role: 'assistant', content: '初始化数据失败，请检查后端服务状态。' },
           ],
         });
@@ -62,7 +62,7 @@ export const useProcureState = () => {
     };
 
     void loadInit();
-  }, [activeTab, activeTabId, chatHistory, updateTab]);
+  }, [activeTab, activeTabId, updateTab]);
 
   const handleSendMessage = async (message: string) => {
     if (!activeTabId) return;

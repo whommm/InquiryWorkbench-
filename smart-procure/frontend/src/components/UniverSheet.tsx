@@ -64,6 +64,7 @@ const UniverSheet: React.FC<UniverSheetProps> = ({
   const mountNodeRef = useRef<HTMLDivElement | null>(null);
   const workbookIdRef = useRef<string | null>(null);
   const readyPollTimerRef = useRef<number | null>(null);
+  const currentDimensionsRef = useRef<{ rows: number; cols: number }>({ rows: 0, cols: 0 });
   const isProgrammaticWriteRef = useRef(false);
   const isUserEditRef = useRef(false); // 标记数据变化是否来自用户编辑
   const changeListenerDisposableRef = useRef<{ dispose: () => void } | null>(null);
@@ -92,76 +93,86 @@ const UniverSheet: React.FC<UniverSheetProps> = ({
   }, [flushUserDataChange]);
 
   const writeDataToActiveSheet = useCallback((univerAPI: ReturnType<typeof FUniver.newAPI>, next: unknown[][]) => {
-    const rowCount = Math.max(next.length, 20);
-    let maxCol = 0;
-    next.forEach((row) => {
-      if (Array.isArray(row) && row.length > maxCol) maxCol = row.length;
-    });
-    const colCount = Math.max(maxCol, 26);
+    // 使用 setTimeout 延迟执行，让 UI 先响应
+    return new Promise<void>((resolve) => {
+      setTimeout(async () => {
+        const rowCount = Math.max(next.length, 20);
+        let maxCol = 0;
+        next.forEach((row) => {
+          if (Array.isArray(row) && row.length > maxCol) maxCol = row.length;
+        });
+        const colCount = Math.max(maxCol, 26);
 
-    // Support both plain values and formula objects
-    const normalized: (string | { f?: string; v?: unknown })[][] = Array.from({ length: rowCount }, () =>
-      Array.from({ length: colCount }, () => '')
-    );
+        // Support both plain values and formula objects
+        const normalized: (string | { f?: string; v?: unknown })[][] = Array.from({ length: rowCount }, () =>
+          Array.from({ length: colCount }, () => '')
+        );
 
-    next.forEach((row, r) => {
-      if (!Array.isArray(row)) return;
-      row.forEach((cell, c) => {
-        if (r >= rowCount || c >= colCount) return;
+        next.forEach((row, r) => {
+          if (!Array.isArray(row)) return;
+          row.forEach((cell, c) => {
+            if (r >= rowCount || c >= colCount) return;
 
-        // Handle null/undefined
-        if (cell === null || cell === undefined) {
-          normalized[r][c] = '';
-          return;
+            if (cell === null || cell === undefined) {
+              normalized[r][c] = '';
+              return;
+            }
+
+            if (typeof cell === 'object' && cell !== null && 'f' in cell) {
+              normalized[r][c] = cell as { f?: string; v?: unknown };
+              return;
+            }
+
+            const cellStr = String(cell);
+            if (cellStr.startsWith('=')) {
+              normalized[r][c] = { f: cellStr };
+              return;
+            }
+
+            normalized[r][c] = cellStr;
+          });
+        });
+
+        const wb = univerAPI.getActiveWorkbook();
+        if (!wb) { resolve(); return; }
+        const ws = wb.getActiveSheet();
+        if (!ws) { resolve(); return; }
+
+        isProgrammaticWriteRef.current = true;
+
+        // 只设置实际需要的行列数，加一点缓冲即可
+        const targetRows = Math.max(rowCount, 50);
+        const targetCols = Math.max(colCount, 30);
+
+        try {
+          const { rows: currentRows, cols: currentCols } = currentDimensionsRef.current;
+          const resizeTasks: Promise<unknown>[] = [];
+
+          if (typeof ws.setRowCount === 'function' && currentRows !== targetRows) {
+            resizeTasks.push(Promise.resolve(ws.setRowCount(targetRows)));
+          }
+          if (typeof ws.setColumnCount === 'function' && currentCols !== targetCols) {
+            resizeTasks.push(Promise.resolve(ws.setColumnCount(targetCols)));
+          }
+
+          if (resizeTasks.length > 0) {
+            await Promise.all(resizeTasks);
+            currentDimensionsRef.current = { rows: targetRows, cols: targetCols };
+          }
+
+          const range = ws.getRange(0, 0, rowCount, colCount);
+          await Promise.resolve(range.setValues(normalized as unknown as never));
+          ws.refreshCanvas?.();
+        } catch {
+          void 0;
         }
 
-        // Handle formula objects (e.g., {f: "=SUM(A1:A10)", v: 100})
-        if (typeof cell === 'object' && cell !== null && 'f' in cell) {
-          normalized[r][c] = cell as { f?: string; v?: unknown };
-          return;
-        }
+        setTimeout(() => {
+          isProgrammaticWriteRef.current = false;
+        }, 200);
 
-        // Handle string values that might be formulas
-        const cellStr = String(cell);
-        if (cellStr.startsWith('=')) {
-          // This is a formula - preserve it as a formula object
-          normalized[r][c] = { f: cellStr };
-          return;
-        }
-
-        // Regular value
-        normalized[r][c] = cellStr;
-      });
-    });
-
-    return Promise.resolve().then(async () => {
-      const wb = univerAPI.getActiveWorkbook();
-      if (!wb) return;
-      const ws = wb.getActiveSheet();
-      if (!ws) return;
-
-      isProgrammaticWriteRef.current = true;
-
-      if (typeof ws.setRowCount === 'function') {
-        await Promise.resolve(ws.setRowCount(Math.max(rowCount, 2000)));
-      }
-      if (typeof ws.setColumnCount === 'function') {
-        await Promise.resolve(ws.setColumnCount(Math.max(colCount, 200)));
-      }
-
-      const range = ws.getRange(0, 0, rowCount, colCount);
-      await Promise.resolve(range.setValues(normalized as unknown as never));
-      try {
-        ws.refreshCanvas?.();
-      } catch {
-        void 0;
-      }
-
-      // 延迟重置标志，确保 Univer 内部的异步操作完成
-      // 使用较长的延迟时间避免后续的 mutation 被误处理
-      setTimeout(() => {
-        isProgrammaticWriteRef.current = false;
-      }, 200);
+        resolve();
+      }, 0);
     });
   }, []);
 
