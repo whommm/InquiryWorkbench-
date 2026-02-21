@@ -475,7 +475,12 @@ function UserManagement(props: {
   const handleCreate = async () => {
     if (!form.username || !form.password) return;
     try {
-      await createUser(form);
+      await createUser({
+        username: form.username,
+        password: form.password,
+        display_name: form.display_name || undefined,
+        role: form.role,
+      });
       setShowCreate(false);
       setForm({ username: '', password: '', display_name: '', role: 'user' });
       props.onRefresh();
