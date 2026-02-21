@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from ..models.database import get_db, User
+from ..models.database import get_db, User, InquirySheet
 from ..auth.utils import decode_token, is_admin_user, require_admin_user, get_password_hash
 from ..core.llm import get_llm_gateway_stats
 from ..services.agent_runtime import get_tool_runtime_stats
@@ -258,6 +258,11 @@ async def delete_user(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
+
+    # Check for related sheets
+    sheet_count = db.query(InquirySheet).filter(InquirySheet.user_id == user_id).count()
+    if sheet_count > 0:
+        raise HTTPException(status_code=400, detail=f"该用户有 {sheet_count} 个表格，无法删除")
 
     db.delete(user)
     db.commit()
