@@ -8,6 +8,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.models import Distance, VectorParams, PointStruct
 from app.core.config import settings
+from app.services.supplier_service import BRAND_ALIASES, BRAND_LOOKUP
 
 logger = logging.getLogger(__name__)
 
@@ -124,15 +125,23 @@ class QdrantService:
         limit: int = 50,
         score_threshold: float = 0.3
     ) -> List[Dict[str, Any]]:
-        """带品牌过滤的向量搜索"""
+        """带品牌过滤的向量搜索（支持品牌别名）"""
         filter_conditions = None
         if brand:
+            brand_lower = brand.strip().lower()
+            # 获取标准品牌名
+            standard_brand = BRAND_LOOKUP.get(brand_lower, brand_lower)
+            # 获取该品牌的所有别名
+            aliases = BRAND_ALIASES.get(standard_brand, [brand_lower])
+
+            # 构建 OR 条件匹配所有别名
             filter_conditions = models.Filter(
-                must=[
+                should=[
                     models.FieldCondition(
                         key="brand",
-                        match=models.MatchValue(value=brand.lower())
+                        match=models.MatchValue(value=alias.lower())
                     )
+                    for alias in aliases
                 ]
             )
         return self.search(

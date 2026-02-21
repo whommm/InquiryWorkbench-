@@ -47,6 +47,27 @@ def _build_brand_lookup() -> Dict[str, str]:
 BRAND_LOOKUP = _build_brand_lookup()
 
 
+def normalize_phone(phone: str) -> str:
+    """标准化电话号码：去除所有非数字字符"""
+    if not phone:
+        return ""
+    return re.sub(r'\D', '', phone)
+
+
+def normalize_company_name(name: str) -> str:
+    """标准化公司名称：去除常见后缀和空格"""
+    if not name:
+        return ""
+    # 去除常见后缀
+    suffixes = ['有限公司', '有限责任公司', '股份有限公司', '集团', '公司', '（', '）', '(', ')']
+    result = name.strip()
+    for suffix in suffixes:
+        result = result.replace(suffix, '')
+    # 去除"市"前面的省份名
+    result = re.sub(r'^(广东|江苏|浙江|上海|北京|山东|福建|湖北|湖南|四川|河南|河北|安徽|陕西|辽宁|天津|重庆)', '', result)
+    return result.strip()
+
+
 class SupplierService:
     """Service for managing suppliers in database"""
 
@@ -63,13 +84,33 @@ class SupplierService:
         created_by: Optional[str] = None
     ) -> Supplier:
         """Insert or update a supplier based on company_name"""
+        # 标准化电话号码
+        normalized_phone = normalize_phone(contact_phone)
+
+        # 先精确匹配
         existing = self.db.query(Supplier).filter(
             Supplier.company_name == company_name
         ).first()
 
+        # 如果精确匹配失败，尝试模糊匹配
+        if not existing and normalized_phone:
+            existing = self.db.query(Supplier).filter(
+                Supplier.contact_phone == normalized_phone
+            ).first()
+
+        # 如果还没找到，尝试公司名称模糊匹配
+        if not existing:
+            norm_name = normalize_company_name(company_name)
+            if len(norm_name) >= 4:
+                candidates = self.db.query(Supplier).all()
+                for c in candidates:
+                    if normalize_company_name(c.company_name) == norm_name:
+                        existing = c
+                        break
+
         if existing:
             # Update existing supplier
-            existing.contact_phone = contact_phone
+            existing.contact_phone = normalized_phone
             existing.owner = owner
             if contact_name:
                 existing.contact_name = contact_name
@@ -88,7 +129,7 @@ class SupplierService:
             # Create new supplier
             new_supplier = Supplier(
                 company_name=company_name,
-                contact_phone=contact_phone,
+                contact_phone=normalized_phone,
                 owner=owner,
                 contact_name=contact_name,
                 tags=tags or [],
@@ -435,11 +476,11 @@ class SupplierService:
             elif "model_fuzzy" in stats["match_types"]:
                 type_bonus = 0.1
 
-            # 综合推荐分数 = 匹配分数(50%) + 类型加分(20%) + 报价次数(30%)
+            # 综合推荐分数 = 匹配分数(60%) + 类型加分(25%) + 报价次数(15%)
             recommendation_score = (
-                max_score * 0.5 +
-                type_bonus +
-                min(stats["total_quote_count"] / 10, 1) * 0.3
+                max_score * 0.6 +
+                type_bonus * 1.25 +
+                min(stats["total_quote_count"] / 10, 1) * 0.15
             )
 
             recommendations.append({
@@ -523,8 +564,30 @@ class SupplierService:
 
         logger.info(f"[推荐V2] 向量检索到 {len(search_results)} 条记录")
 
-        # 重排序并聚合
-        return self._rerank_and_aggregate_v2(search_results, limit)
+        # 获取 V2 结果
+        v2_results = self._rerank_and_aggregate_v2(search_results, limit * 2)
+
+        # 获取 V1 结果并融合
+        v1_results = self.recommend_suppliers(product_name, spec, brand, limit * 2)
+
+        # 融合结果：按 supplier_id 去重，V2 优先
+        seen_ids = set()
+        merged = []
+        for r in v2_results:
+            if r["supplier_id"] not in seen_ids:
+                seen_ids.add(r["supplier_id"])
+                merged.append(r)
+        for r in v1_results:
+            if r["supplier_id"] not in seen_ids:
+                seen_ids.add(r["supplier_id"])
+                # 转换 V1 格式以匹配 V2
+                r["avg_similarity"] = r.get("avg_match_score", 0)
+                r["max_similarity"] = r.get("recommendation_score", 0)
+                merged.append(r)
+
+        # 按推荐分数排序
+        merged.sort(key=lambda x: x.get("recommendation_score", 0), reverse=True)
+        return merged[:limit]
 
     def _rerank_and_aggregate_v2(
         self,
