@@ -15,6 +15,7 @@ SmartProcure 是一个基于 Web 的智能采购管理工具，旨在提升企�
 - **网络搜索**：集成 Tavily API，支持互联网信息搜索
 - **浏览器自动化**：集成 Playwright，支持无头浏览器访问网页提取信息
 - **Excel 兼容**：支持导入/导出 Excel 文件
+- **管理员监控**：实时进度监控和用户管理功能
 
 ## 技术栈
 
@@ -69,11 +70,15 @@ InquiryWorkbench/
     │   │   ├── stores/         # Zustand 状态
     │   │   └── utils/          # 工具函数
     │   └── package.json
+    ├── admin-frontend/          # 管理员前端
+    │   ├── src/
+    │   └── package.json
     └── deploy/                 # 部署配置
         ├── docker-compose.yml          # 开发环境
         ├── docker-compose.prod.yml     # 生产环境
         ├── Dockerfile.backend          # 后端镜像
         ├── Dockerfile.frontend         # 前端镜像
+        ├── Dockerfile.admin-frontend   # 管理员前端镜像
         ├── nginx.conf                  # Nginx 配置
         └── deploy.sh                   # 部署脚本
 ```
